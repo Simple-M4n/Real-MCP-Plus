@@ -1,16 +1,16 @@
 ---
 name: replus
 description: >-
-  Complete guide for RealMCP+ (real-plus MCP server, 25 high-level tools). Use
+  Complete guide for RealMCP+ (real-plus MCP server, 24 high-level tools). Use
   when scanning/reversing a Roblox game, running scripts, tracing remotes,
   testing animations/physics, searching ScriptBlox/RScripts, searching games
   across categories, auditing client-side anti-cheat, deobfuscating Luau scripts,
-  dumping data model hierarchies, or generating HTML reports.
+  or dumping data model hierarchies.
 ---
 
 # RealMCP+ (`real-plus`)
 
-High-level composite MCP server providing 25 specialized tools for Roblox reverse engineering, memory scanning, world auditing, script automation, deobfuscation, data model dumping, and interactive HTML dashboards.
+High-level composite MCP server providing 24 specialized tools for Roblox reverse engineering, memory scanning, world auditing, script automation, deobfuscation, and data model dumping.
 
 - **Executable**: `real-mcp-plus.exe --only-plus`
 - **MCP Server Name**: `real-plus`
@@ -18,11 +18,11 @@ High-level composite MCP server providing 25 specialized tools for Roblox revers
 
 ## Routing & Rules
 
-- Always pass `ServerName: "real-plus"` for all 25 tools.
+- Always pass `ServerName: "real-plus"` for all 24 tools.
 - Never write print statements, notifications, or toasts in generated Luau code.
 - Read `<appDataDir>\mcp\real-plus\<tool>.json` if inspecting detailed schemas.
 
-## RealMCP+ Tools Reference (25 Tools)
+## RealMCP+ Tools Reference (24 Tools)
 
 ### Reconnaissance & Anti-Cheat
 - **`recon`** (`depth`, `remember`): One-shot automated game reconnaissance combining game info, remotes, anti-cheat, UI, interactables, and memory persistence.
@@ -53,13 +53,6 @@ High-level composite MCP server providing 25 specialized tools for Roblox revers
 ### Deobfuscation & Data Model Dumping
 - **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `ironbrew`, `moonsec`, `generic`. Automatically recognizes WeAreDevs (`https://wearedevs.net/obfuscator`), Prometheus V2 (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), IronBrew 2 (IB2 / Luraph legacy), and MoonSec V2/V3 (with automatic XOR key recovery), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, referenced services, and IOCs. Operates fully offline without requiring an active Roblox client.
 - **`dumper`** (`target`, `maxDepth`, `saveToFile`): Recursively dump Roblox DataModel hierarchies (ReplicatedStorage, StarterGui, StarterPlayer, Workspace) with attributes, Remote identifiers, and ValueBases into structured JSON for offline analysis or direct disk export.
-- **`htmldumper`** (`mode`, `format`, `target`, `maxDepth`, `includeSource`, `captureScreenshot`, `saveToFile`): Interactive HTML/JSON inspector for Roblox DataModel with 5 specialized modes:
-  - `Structure`: Full hierarchy and paths without properties (lightweight and fast).
-  - `All`: Full hierarchy with properties, attributes, and decompiled script contents.
-  - `Script`: Only LocalScript & ModuleScript hierarchy, line counts, and decompiled source code.
-  - `Humanoid`: All living entities and models with Humanoid, HP bars, WalkSpeed, coordinates, and tools.
-  - `UI`: GUI widget hierarchy (PlayerGui, StarterGui) paired with an embedded game window screenshot for visual inspection.
-  Output can be rendered as a standalone offline HTML dashboard (with search, dark theme, and one-click JSON export) or exported to disk.
 
 ### Web Search & Game Discovery
 - **`rbxgame-search`** (`query`, `category`, `includeVotes`, `includeThumbnails`, `maxResults`): Search Roblox games across curated categories (`anime`, `pvp`, `horror`, `simulator`, `shooter`, `rpg`, `obby`, `survival`, `driving`, `roleplay`, `popular`, `all`) with live concurrent players, visits, ratings, and icon URLs.
