@@ -1,6 +1,4 @@
-target/
 build/
-*.exe
 *.o
 *.a
 *.pdb
