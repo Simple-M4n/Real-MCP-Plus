@@ -1,0 +1,9 @@
+target/
+build/
+*.exe
+*.o
+*.a
+*.pdb
+*.ilk
+.vscode/
+.idea/
