@@ -89,7 +89,7 @@ To use `real-plus` alongside the base `real` MCP server, register both in your M
 | Tool | Category | Description |
 |---|---|---|
 | `rbxgame-search` | Web & Discovery | Search Roblox experiences across categories (anime, pvp, horror, simulator, etc.) with concurrent players, visits, ratings, and icons |
-| `web-scripts` | Web & Discovery | Search ScriptBlox and RScripts platforms by query or current place info, with raw script source fetching |
+| `web-scripts` | Web & Discovery | Search ScriptBlox, RScripts, rblxscripts.net, and haxhell.com platforms by query or current place info, with raw script source fetching |
 | `recon` | Reconnaissance | Automated single-step full game reconnaissance combining game info, remotes, anti-cheat, UI, interactables, and memory persistence |
 | `scac` | Anti-Cheat | Client-side anti-cheat scanner (hidden scripts, tamper hooks, suspicious remotes, and connection flags) |
 | `uiscan` | Interface | Audit PlayerGui, StarterGui, and nil instances for hidden or suspicious GUI elements |
