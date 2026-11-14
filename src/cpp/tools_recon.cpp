@@ -1,5 +1,6 @@
 #include "tools.hpp"
 #include "payloads_gen.hpp"
+#include <future>
 #include <vector>
 
 namespace realplus {
@@ -95,12 +96,28 @@ Json run_recon(RealBridge& real, const Json& args) {
     bool full = (depth == "full");
 
     Json game_info = call_optional(real, "get-game-info", Json::object());
+    auto scac_task = std::async(std::launch::async, [&]() {
+        return parse_tool_json_or_raw(run_scac(real, Json::object({{"includeBuiltinScan", Json(full)}})));
+    });
+    auto prox_task = std::async(std::launch::async, [&]() {
+        return parse_tool_json_or_raw(run_proxscan(real, Json::object({{"maxItems", Json(full ? 120 : 60)}})));
+    });
+    auto econ_task = std::async(std::launch::async, [&]() {
+        return parse_tool_json_or_raw(run_econscan(real, Json::object({{"includeGrep", Json(full)}, {"maxItems", Json(80)}})));
+    });
+    auto ui_task = std::async(std::launch::async, [&]() {
+        return parse_tool_json_or_raw(run_uiscan(real, Json::object({{"onlySuspicious", Json(true)}, {"maxItems", Json(60)}})));
+    });
+    auto cli_task = std::async(std::launch::async, [&]() {
+        return parse_tool_json_or_raw(run_clicheck(real, Json::object({{"includeGc", Json(full)}, {"includeGrep", Json(full)}, {"maxItems", Json(60)}})));
+    });
+
     Json rem_res = parse_tool_json_or_raw(run_remmap(real, Json::object({{"maxItems", Json(full ? 250 : 120)}})));
-    Json scac_res = parse_tool_json_or_raw(run_scac(real, Json::object({{"includeBuiltinScan", Json(full)}})));
-    Json prox_res = parse_tool_json_or_raw(run_proxscan(real, Json::object({{"maxItems", Json(full ? 120 : 60)}})));
-    Json econ_res = parse_tool_json_or_raw(run_econscan(real, Json::object({{"includeGrep", Json(full)}, {"maxItems", Json(80)}})));
-    Json ui_res = parse_tool_json_or_raw(run_uiscan(real, Json::object({{"onlySuspicious", Json(true)}, {"maxItems", Json(60)}})));
-    Json cli_res = parse_tool_json_or_raw(run_clicheck(real, Json::object({{"includeGc", Json(full)}, {"includeGrep", Json(full)}, {"maxItems", Json(60)}})));
+    Json scac_res = scac_task.get();
+    Json prox_res = prox_task.get();
+    Json econ_res = econ_task.get();
+    Json ui_res = ui_task.get();
+    Json cli_res = cli_task.get();
 
     Json report = Json::object({
         {"depth", Json(depth)},

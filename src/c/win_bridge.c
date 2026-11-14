@@ -209,30 +209,8 @@ int win_http_get(
     *out_len = 0;
     *out_status = 0;
 
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, url, -1, NULL, 0);
-    if (wlen <= 0) return -1;
-    wchar_t* wurl = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
-    if (!wurl) return -1;
-    MultiByteToWideChar(CP_UTF8, 0, url, -1, wurl, wlen);
-
-    URL_COMPONENTS uc;
-    ZeroMemory(&uc, sizeof(uc));
-    uc.dwStructSize = sizeof(uc);
-    wchar_t host[256] = {0};
-    wchar_t path[2048] = {0};
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = 255;
-    uc.lpszUrlPath = path;
-    uc.dwUrlPathLength = 2047;
-
-    if (!WinHttpCrackUrl(wurl, 0, 0, &uc)) {
-        free(wurl);
-        return -1;
-    }
-    free(wurl);
-
     HINTERNET h_session = WinHttpOpen(
-        L"RealMCPPlus/0.2",
+        L"RealMCPPlus/1.0.1 (WinHTTP; x64)",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,
@@ -240,8 +218,48 @@ int win_http_get(
     );
     if (!h_session) return -1;
 
-    WinHttpSetTimeouts(h_session, timeout_ms, timeout_ms, timeout_ms, timeout_ms);
+    DWORD decomp = WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
+    WinHttpSetOption(h_session, WINHTTP_OPTION_DECOMPRESSION, &decomp, sizeof(decomp));
 
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, url, -1, NULL, 0);
+    if (wlen <= 0) {
+        WinHttpCloseHandle(h_session);
+        return -1;
+    }
+    wchar_t* wurl = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!wurl) {
+        WinHttpCloseHandle(h_session);
+        return -1;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, url, -1, wurl, wlen);
+
+    URL_COMPONENTS uc;
+    ZeroMemory(&uc, sizeof(uc));
+    uc.dwStructSize = sizeof(uc);
+    wchar_t host[256] = {0};
+    wchar_t path[4096] = {0};
+    wchar_t extra[4096] = {0};
+    uc.lpszHostName = host;
+    uc.dwHostNameLength = 255;
+    uc.lpszUrlPath = path;
+    uc.dwUrlPathLength = 4095;
+    uc.lpszExtraInfo = extra;
+    uc.dwExtraInfoLength = 4095;
+
+    if (!WinHttpCrackUrl(wurl, 0, 0, &uc)) {
+        free(wurl);
+        WinHttpCloseHandle(h_session);
+        return -1;
+    }
+    free(wurl);
+
+    wchar_t full_path[8192] = {0};
+    wcsncpy(full_path, path[0] ? path : L"/", 4095);
+    if (extra[0]) {
+        wcsncat(full_path, extra, 4095);
+    }
+
+    WinHttpSetTimeouts(h_session, timeout_ms, timeout_ms, timeout_ms, timeout_ms);
     HINTERNET h_connect = WinHttpConnect(h_session, host, uc.nPort, 0);
     if (!h_connect) {
         WinHttpCloseHandle(h_session);
@@ -252,7 +270,7 @@ int win_http_get(
     HINTERNET h_req = WinHttpOpenRequest(
         h_connect,
         L"GET",
-        path[0] ? path : L"/",
+        full_path,
         NULL,
         WINHTTP_NO_REFERER,
         WINHTTP_DEFAULT_ACCEPT_TYPES,

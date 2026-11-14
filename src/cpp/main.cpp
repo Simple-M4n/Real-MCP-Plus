@@ -143,6 +143,7 @@ int main(int argc, char** argv) {
 
     Json saved_init_params = Json::object();
     std::vector<std::thread> workers;
+    std::mutex workers_mtx;
     std::string line;
 
     while (std::getline(std::cin, line)) {
@@ -173,7 +174,7 @@ int main(int argc, char** argv) {
                 })},
                 {"serverInfo", Json::object({
                     {"name", Json("real-mcp-plus")},
-                    {"version", Json("2.0.0")}
+                    {"version", Json("1.0.1")}
                 })}
             }));
             continue;
@@ -215,31 +216,43 @@ int main(int argc, char** argv) {
         }
 
         if (method == "tools/call") {
-            workers.emplace_back([&, id, params]() {
-                std::string tname = params.get("name").as_string("");
-                Json targs = params.get("arguments").is_object() ? params.get("arguments") : Json::object();
-
-                try {
-                    if (plus_names.count(tname)) {
-                        if (tname == "web-scripts" && !targs.get("useCurrentGame").as_bool(false) &&
-                            !targs.get("query").as_string("").empty()) {
-                            send_result(id, realplus::run_web_scripts_opt(nullptr, targs));
-                        } else if (tname == "rbxgame-search") {
-                            send_result(id, realplus::run_rbxgame_search_opt(nullptr, targs));
-                        } else {
-                            auto& real = bridge_mgr.get(saved_init_params);
-                            send_result(id, realplus::dispatch_plus_tool(real, tname, targs));
-                        }
-                    } else if (!cfg.only_plus) {
-                        auto& real = bridge_mgr.get(saved_init_params);
-                        send_result(id, real.call_tool(tname, targs));
+            {
+                std::lock_guard<std::mutex> lock(workers_mtx);
+                auto it = workers.begin();
+                while (it != workers.end()) {
+                    if (it->joinable()) {
+                        it->join();
+                        it = workers.erase(it);
                     } else {
-                        send_result(id, realplus::tool_error("Unknown tool in --only-plus mode: " + tname));
+                        ++it;
                     }
-                } catch (const std::exception& e) {
-                    send_result(id, realplus::tool_error(e.what()));
                 }
-            });
+                workers.emplace_back([&, id, params]() {
+                    std::string tname = params.get("name").as_string("");
+                    Json targs = params.get("arguments").is_object() ? params.get("arguments") : Json::object();
+
+                    try {
+                        if (plus_names.count(tname)) {
+                            if (tname == "web-scripts" && !targs.get("useCurrentGame").as_bool(false) &&
+                                !targs.get("query").as_string("").empty()) {
+                                send_result(id, realplus::run_web_scripts_opt(nullptr, targs));
+                            } else if (tname == "rbxgame-search") {
+                                send_result(id, realplus::run_rbxgame_search_opt(nullptr, targs));
+                            } else {
+                                auto& real = bridge_mgr.get(saved_init_params);
+                                send_result(id, realplus::dispatch_plus_tool(real, tname, targs));
+                            }
+                        } else if (!cfg.only_plus) {
+                            auto& real = bridge_mgr.get(saved_init_params);
+                            send_result(id, real.call_tool(tname, targs));
+                        } else {
+                            send_result(id, realplus::tool_error("Unknown tool in --only-plus mode: " + tname));
+                        }
+                    } catch (const std::exception& e) {
+                        send_result(id, realplus::tool_error(e.what()));
+                    }
+                });
+            }
             continue;
         }
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <future>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -220,11 +221,21 @@ Json run_web_scripts_opt(RealBridge* real, const Json& args) {
         report.as_object()["gameInfo"] = game_info;
     }
 
-    if (platform == "all" || platform == "scriptblox") {
-        report.as_object()["scriptblox"] = fetch_scriptblox(query, mode, page, max_res, fetch_src);
-    }
-    if (platform == "all" || platform == "rscripts") {
-        report.as_object()["rscripts"] = fetch_rscripts(query, mode, page, max_res, fetch_src);
+    if (platform == "all") {
+        auto sb_task = std::async(std::launch::async, [&]() {
+            return fetch_scriptblox(query, mode, page, max_res, fetch_src);
+        });
+        auto rs_task = std::async(std::launch::async, [&]() {
+            return fetch_rscripts(query, mode, page, max_res, fetch_src);
+        });
+        report.as_object()["scriptblox"] = sb_task.get();
+        report.as_object()["rscripts"] = rs_task.get();
+    } else {
+        if (platform == "scriptblox") {
+            report.as_object()["scriptblox"] = fetch_scriptblox(query, mode, page, max_res, fetch_src);
+        } else if (platform == "rscripts") {
+            report.as_object()["rscripts"] = fetch_rscripts(query, mode, page, max_res, fetch_src);
+        }
     }
 
     return tool_text_response(report);
@@ -354,9 +365,41 @@ Json run_rbxgame_search_opt(RealBridge* real, const Json& args) {
         uids_param += std::to_string(candidates[i].universe_id);
     }
 
-    std::string info_body, info_err;
-    int info_stat = 0;
-    http_get_str("https://games.roblox.com/v1/games?universeIds=" + uids_param, 10000, info_body, info_stat, info_err);
+    std::unordered_map<int64_t, std::pair<int64_t, int64_t>> votes_map;
+    std::unordered_map<int64_t, std::string> thumbs_map;
+
+    std::string info_url = "https://games.roblox.com/v1/games?universeIds=" + uids_param;
+    std::string votes_url = "https://games.roblox.com/v1/games/votes?universeIds=" + uids_param;
+    std::string thumb_url = "https://thumbnails.roblox.com/v1/games/icons?universeIds=" + uids_param + "&size=150x150&format=Png";
+
+    auto fetch_info_task = std::async(std::launch::async, [info_url]() {
+        std::string body, err;
+        int stat = 0;
+        http_get_str(info_url, 8000, body, stat, err);
+        return body;
+    });
+
+    auto fetch_votes_task = std::async(std::launch::async, [votes_url, inc_votes]() {
+        std::string body;
+        if (inc_votes) {
+            std::string err;
+            int stat = 0;
+            http_get_str(votes_url, 8000, body, stat, err);
+        }
+        return body;
+    });
+
+    auto fetch_thumbs_task = std::async(std::launch::async, [thumb_url, inc_thumbs]() {
+        std::string body;
+        if (inc_thumbs) {
+            std::string err;
+            int stat = 0;
+            http_get_str(thumb_url, 8000, body, stat, err);
+        }
+        return body;
+    });
+
+    std::string info_body = fetch_info_task.get();
     Json info_json;
     std::unordered_map<int64_t, Json> info_map;
     if (Json::try_parse(info_body, info_json) && info_json.get("data").is_array()) {
@@ -367,37 +410,28 @@ Json run_rbxgame_search_opt(RealBridge* real, const Json& args) {
         }
     }
 
-    std::unordered_map<int64_t, std::pair<int64_t, int64_t>> votes_map;
-    if (inc_votes) {
-        std::string votes_body, votes_err;
-        int votes_stat = 0;
-        if (http_get_str("https://games.roblox.com/v1/games/votes?universeIds=" + uids_param, 8000, votes_body, votes_stat, votes_err)) {
-            Json vj;
-            if (Json::try_parse(votes_body, vj) && vj.get("data").is_array()) {
-                for (const auto& item : vj.get("data").as_array()) {
-                    if (item.is_object() && item.contains("id")) {
-                        votes_map[item.get("id").as_int(0)] = {
-                            item.get("upVotes").as_int(0),
-                            item.get("downVotes").as_int(0)
-                        };
-                    }
+    std::string votes_body = fetch_votes_task.get();
+    if (inc_votes && !votes_body.empty()) {
+        Json vj;
+        if (Json::try_parse(votes_body, vj) && vj.get("data").is_array()) {
+            for (const auto& item : vj.get("data").as_array()) {
+                if (item.is_object() && item.contains("id")) {
+                    votes_map[item.get("id").as_int(0)] = {
+                        item.get("upVotes").as_int(0),
+                        item.get("downVotes").as_int(0)
+                    };
                 }
             }
         }
     }
 
-    std::unordered_map<int64_t, std::string> thumbs_map;
-    if (inc_thumbs) {
-        std::string thumb_url = "https://thumbnails.roblox.com/v1/games/icons?universeIds=" + uids_param + "&size=150x150&format=Png";
-        std::string thumb_body, thumb_err;
-        int thumb_stat = 0;
-        if (http_get_str(thumb_url, 8000, thumb_body, thumb_stat, thumb_err)) {
-            Json tj;
-            if (Json::try_parse(thumb_body, tj) && tj.get("data").is_array()) {
-                for (const auto& item : tj.get("data").as_array()) {
-                    if (item.is_object() && item.contains("targetId")) {
-                        thumbs_map[item.get("targetId").as_int(0)] = item.get("imageUrl").as_string("");
-                    }
+    std::string thumb_body = fetch_thumbs_task.get();
+    if (inc_thumbs && !thumb_body.empty()) {
+        Json tj;
+        if (Json::try_parse(thumb_body, tj) && tj.get("data").is_array()) {
+            for (const auto& item : tj.get("data").as_array()) {
+                if (item.is_object() && item.contains("targetId")) {
+                    thumbs_map[item.get("targetId").as_int(0)] = item.get("imageUrl").as_string("");
                 }
             }
         }

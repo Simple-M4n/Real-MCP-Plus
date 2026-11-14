@@ -1,8 +1,18 @@
-# RealMCP+ (`real-mcp-plus`)
+# RealMCP+ (`real-mcp-plus`) v1.0.1
 
 High-performance composite Model Context Protocol (MCP) server for Roblox reverse engineering, memory scanning, game discovery, and script automation written in pure **C11 & C++20** with native Win32/WinHTTP integration.
 
 Designed to run alongside or on top of `real-mcp.exe` (Real executor MCP runtime) via stdio JSON-RPC 2.0.
+
+---
+
+## What's New in v1.0.1 (Optimizations & Fixes)
+
+- **Worker Thread Reaping**: Proactive cleanup of finished asynchronous tool caller worker threads, eliminating thread accumulation and memory growth during high-frequency requests.
+- **Async Concurrent WinHTTP Fetching**: `web-scripts` now runs ScriptBlox and RScripts search queries concurrently in parallel threads using `std::async`.
+- **Parallel Game Discovery Enriched Metadata**: `rbxgame-search` executes game details, vote counts/ratings, and icon thumbnail requests asynchronously in parallel streams over WinHTTP.
+- **Decompression & Query Preservation**: Added transparent gzip/deflate response decompression support via `WINHTTP_OPTION_DECOMPRESSION` and enhanced URL path extra-info handling.
+- **Multi-threaded Recon**: `recon` runs `scac`, `proxscan`, `econscan`, `uiscan`, and `clicheck` in parallel worker tasks.
 
 ---
 
