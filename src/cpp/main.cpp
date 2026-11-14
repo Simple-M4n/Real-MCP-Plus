@@ -238,6 +238,8 @@ int main(int argc, char** argv) {
                                 send_result(id, realplus::run_web_scripts_opt(nullptr, targs));
                             } else if (tname == "rbxgame-search") {
                                 send_result(id, realplus::run_rbxgame_search_opt(nullptr, targs));
+                            } else if (tname == "simpledeobf") {
+                                send_result(id, realplus::run_simpledeobf_opt(nullptr, targs));
                             } else {
                                 auto& real = bridge_mgr.get(saved_init_params);
                                 send_result(id, realplus::dispatch_plus_tool(real, tname, targs));

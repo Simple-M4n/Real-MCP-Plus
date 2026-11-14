@@ -10,7 +10,7 @@ DEST_EXE = target/release/real-mcp-plus.exe
 
 CPP_SRCS = src/cpp/main.cpp src/cpp/bridge.cpp src/cpp/tools_registry.cpp \
            src/cpp/tools_recon.cpp src/cpp/tools_remotes.cpp \
-           src/cpp/tools_world.cpp src/cpp/tools_web.cpp
+           src/cpp/tools_world.cpp src/cpp/tools_web.cpp src/cpp/tools_deobf.cpp
 CPP_OBJS = $(patsubst src/cpp/%.cpp,$(BUILD_DIR)/%.o,$(CPP_SRCS))
 C_OBJ = $(BUILD_DIR)/win_bridge.o
 LUAU_FILES = $(wildcard src/payloads/*.luau)

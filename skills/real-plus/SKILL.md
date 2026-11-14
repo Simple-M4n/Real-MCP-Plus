@@ -1,15 +1,16 @@
 ---
 name: replus
 description: >-
-  Complete guide for RealMCP+ (real-plus MCP server, 22 high-level tools). Use
+  Complete guide for RealMCP+ (real-plus MCP server, 24 high-level tools). Use
   when scanning/reversing a Roblox game, running scripts, tracing remotes,
   testing animations/physics, searching ScriptBlox/RScripts, searching games
-  across categories, or auditing client-side anti-cheat.
+  across categories, auditing client-side anti-cheat, deobfuscating Luau scripts,
+  or dumping data model hierarchies.
 ---
 
 # RealMCP+ (`real-plus`)
 
-High-level composite MCP server providing 22 specialized tools for Roblox reverse engineering, memory scanning, world auditing, and script automation.
+High-level composite MCP server providing 24 specialized tools for Roblox reverse engineering, memory scanning, world auditing, script automation, deobfuscation, and data model dumping.
 
 - **Executable**: `real-mcp-plus.exe --only-plus`
 - **MCP Server Name**: `real-plus`
@@ -17,11 +18,11 @@ High-level composite MCP server providing 22 specialized tools for Roblox revers
 
 ## Routing & Rules
 
-- Always pass `ServerName: "real-plus"` for all 22 tools.
+- Always pass `ServerName: "real-plus"` for all 24 tools.
 - Never write print statements, notifications, or toasts in generated Luau code.
 - Read `<appDataDir>\mcp\real-plus\<tool>.json` if inspecting detailed schemas.
 
-## RealMCP+ Tools Reference (22 Tools)
+## RealMCP+ Tools Reference (24 Tools)
 
 ### Reconnaissance & Anti-Cheat
 - **`recon`** (`depth`, `remember`): One-shot automated game reconnaissance combining game info, remotes, anti-cheat, UI, interactables, and memory persistence.
@@ -48,6 +49,10 @@ High-level composite MCP server providing 22 specialized tools for Roblox revers
 - **`animscan`** (`includeSounds`, `maxItems`): Scan Animation and Sound asset identifiers across character, backpack, and storage.
 - **`animmake`** (`action`, `animId`, `loop`, `speed`, `keyframes`): Create, play, stop, or export keyframe animations applied directly to Motor6D joints.
 - **`scriptmap`** (`includeNil`, `testDecompile`, `filter`, `maxItems`): Inventory of all LocalScripts and ModuleScripts with decompiler readability check.
+
+### Deobfuscation & Data Model Dumping
+- **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `generic`. Automatically recognizes WeAreDevs Obfuscator (`https://wearedevs.net/obfuscator`), Prometheus V2 pipeline (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, and IOCs. Operates fully offline without requiring an active Roblox client.
+- **`dumper`** (`target`, `maxDepth`, `saveToFile`): Recursively dump Roblox DataModel hierarchies (ReplicatedStorage, StarterGui, StarterPlayer, Workspace) with attributes, Remote identifiers, and ValueBases into structured JSON for offline analysis or direct disk export.
 
 ### Web Search & Game Discovery
 - **`rbxgame-search`** (`query`, `category`, `includeVotes`, `includeThumbnails`, `maxResults`): Search Roblox games across curated categories (`anime`, `pvp`, `horror`, `simulator`, `shooter`, `rpg`, `obby`, `survival`, `driving`, `roleplay`, `popular`, `all`) with live concurrent players, visits, ratings, and icon URLs.

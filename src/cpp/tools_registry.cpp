@@ -113,6 +113,23 @@ Json list_plus_tools() {
             {"maxResults", prop_int("Maximum games to return", 10)}
         })));
 
+    a.push_back(make_tool("simpledeobf",
+        "Deobfuscate and analyze protected Lua/Luau scripts with automatic detection (WeAreDevs, Prometheus V2, string encryption, and character array folding).",
+        Json::object({
+            {"script", prop_str("Obfuscated Luau script code or payload")},
+            {"mode", prop_str("Deobfuscation mode: auto, wearedevs, prometheus, generic", "auto")},
+            {"extractStrings", prop_bool("Extract decrypted strings and literals", true)},
+            {"extractUrls", prop_bool("Extract hidden URLs, webhooks, and endpoints", true)}
+        }), {"script"}));
+
+    a.push_back(make_tool("dumper",
+        "Dump full Roblox data model hierarchies, ReplicatedStorage remotes, ModuleScript configs, and ValueBases into structured JSON for offline reverse engineering.",
+        Json::object({
+            {"target", prop_str("Target container: all, ReplicatedStorage, StarterGui, StarterPlayer, Workspace", "all")},
+            {"maxDepth", prop_int("Maximum recursion depth", 3)},
+            {"saveToFile", prop_str("Optional filename to save the dump directly on disk")}
+        })));
+
     a.push_back(make_tool("clicheck",
         "Audit client-trusted attributes, ValueBases, cooldowns, speeds, and client-side check patterns.",
         Json::object({
@@ -245,6 +262,8 @@ Json dispatch_plus_tool(RealBridge& real, const std::string& name, const Json& a
         {"proxscan", run_proxscan},
         {"web-scripts", run_web_scripts},
         {"rbxgame-search", run_rbxgame_search},
+        {"simpledeobf", run_simpledeobf},
+        {"dumper", run_dumper},
         {"clicheck", run_clicheck},
         {"modscan", run_modscan},
         {"econscan", run_econscan},
