@@ -15,7 +15,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $cppFiles = @(
     "main", "bridge", "tools_registry",
-    "tools_recon", "tools_remotes", "tools_world", "tools_web", "tools_deobf"
+    "tools_recon", "tools_remotes", "tools_world", "tools_web", "tools_deobf", "tools_htmldumper"
 )
 
 $objs = @("build\win_bridge.o")

@@ -130,6 +130,18 @@ Json list_plus_tools() {
             {"saveToFile", prop_str("Optional filename to save the dump directly on disk")}
         })));
 
+    a.push_back(make_tool("htmldumper",
+        "Interactive HTML/JSON inspector for Roblox DataModel with 5 specialized modes: Structure (lightweight tree), All (full properties & scripts), Script (source viewer), Humanoid (HP & living entities), UI (GUI tree + window screenshot).",
+        Json::object({
+            {"mode", prop_str("Dump mode: Structure, All, Script, Humanoid, UI", "Structure")},
+            {"format", prop_str("Output format: html, json, both", "html")},
+            {"target", prop_str("Target container: all, Workspace, ReplicatedStorage, StarterGui, StarterPlayer, PlayerGui", "all")},
+            {"maxDepth", prop_int("Maximum hierarchy depth", 5)},
+            {"includeSource", prop_bool("Include decompiled script contents in All/Script mode", true)},
+            {"captureScreenshot", prop_bool("Capture game window screenshot in UI mode", true)},
+            {"saveToFile", prop_str("Optional filename to save HTML or JSON report")}
+        })));
+
     a.push_back(make_tool("clicheck",
         "Audit client-trusted attributes, ValueBases, cooldowns, speeds, and client-side check patterns.",
         Json::object({
@@ -264,6 +276,7 @@ Json dispatch_plus_tool(RealBridge& real, const std::string& name, const Json& a
         {"rbxgame-search", run_rbxgame_search},
         {"simpledeobf", run_simpledeobf},
         {"dumper", run_dumper},
+        {"htmldumper", run_htmldumper},
         {"clicheck", run_clicheck},
         {"modscan", run_modscan},
         {"econscan", run_econscan},

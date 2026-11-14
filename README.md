@@ -21,9 +21,9 @@ Designed to run alongside or on top of `real-mcp.exe` (Real executor MCP runtime
 - **No external dependencies**: Pure C11 (`win_bridge.c`) + C++20 (`json.hpp`, `bridge.cpp`, `tools_*.cpp`).
 - **Direct Win32 Pipes**: Low-overhead asynchronous RPC communication with `real-mcp.exe`.
 - **Native WinHTTP**: Fast TLS/HTTPS client for public web APIs without curl or Python overhead.
-- **Embedded Luau Payloads**: 18 optimized byte-level Luau scanners embedded into the binary at compile time.
-- **24 High-Level MCP Tools**:
-  - **Deobfuscation & Data Model**: `simpledeobf`, `dumper`
+- **Embedded Luau Payloads**: 19 optimized byte-level Luau scanners embedded into the binary at compile time.
+- **25 High-Level MCP Tools**:
+  - **Data Model & Deobfuscation**: `htmldumper`, `simpledeobf`, `dumper`
   - **Game Discovery & Research**: `rbxgame-search`, `web-scripts`
   - **Recon & Anti-Cheat**: `recon`, `scac`, `uiscan`, `httpscan`, `keyscan`, `hookwatch`
   - **Remotes & Networking**: `remmap`, `remtrace`, `remotesim`, `clicheck`, `netcheck`
