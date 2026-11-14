@@ -51,7 +51,7 @@ High-level composite MCP server providing 24 specialized tools for Roblox revers
 - **`scriptmap`** (`includeNil`, `testDecompile`, `filter`, `maxItems`): Inventory of all LocalScripts and ModuleScripts with decompiler readability check.
 
 ### Deobfuscation & Data Model Dumping
-- **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `generic`. Automatically recognizes WeAreDevs Obfuscator (`https://wearedevs.net/obfuscator`), Prometheus V2 pipeline (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, and IOCs. Operates fully offline without requiring an active Roblox client.
+- **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `ironbrew`, `moonsec`, `generic`. Automatically recognizes WeAreDevs (`https://wearedevs.net/obfuscator`), Prometheus V2 (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), IronBrew 2 (IB2 / Luraph legacy), and MoonSec V2/V3 (with automatic XOR key recovery), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, referenced services, and IOCs. Operates fully offline without requiring an active Roblox client.
 - **`dumper`** (`target`, `maxDepth`, `saveToFile`): Recursively dump Roblox DataModel hierarchies (ReplicatedStorage, StarterGui, StarterPlayer, Workspace) with attributes, Remote identifiers, and ValueBases into structured JSON for offline analysis or direct disk export.
 
 ### Web Search & Game Discovery

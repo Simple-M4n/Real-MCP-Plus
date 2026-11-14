@@ -59,6 +59,39 @@ local function decode_prometheus(src)
     }
 end
 
+local function decode_ironbrew(src)
+    local is_ib = false
+    if src:find("IronBrew", 1, true) or src:find("Ironbrew", 1, true) or src:find("ironbrew", 1, true) then
+        is_ib = true
+    elseif (src:find("gBit", 1, true) or src:find("gBits", 1, true)) and src:find("bit32", 1, true) then
+        is_ib = true
+    end
+    if not is_ib then return nil end
+
+    return {
+        detected = "IronBrew 2 / Luraph Legacy",
+        confidence = "high",
+        vmLoop = src:find("while true do", 1, true) ~= nil
+    }
+end
+
+local function decode_moonsec(src)
+    local is_moon = false
+    if src:find("MoonSec", 1, true) or src:find("Moonsec", 1, true) or src:find("moonsec", 1, true) then
+        is_moon = true
+    elseif src:find("bxor", 1, true) and src:find("\\", 1, true) and src:find("return(", 1, true) then
+        is_moon = true
+    end
+    if not is_moon then return nil end
+
+    local ver = "MoonSec V2/V3"
+    if src:find("V3", 1, true) or src:find("v3", 1, true) then ver = "MoonSec V3" end
+    return {
+        detected = ver,
+        confidence = "high"
+    }
+end
+
 local function decode_generic(src)
     local char_arrays = {}
     for match in src:gmatch("string%.char%s*%(%s*([%d%s,]+)%s*%)") do
@@ -71,14 +104,6 @@ local function decode_generic(src)
         end
         if #decoded > 0 then
             table.insert(char_arrays, decoded)
-        end
-    end
-
-    local hex_strings = {}
-    for match in src:gmatch('\\x(%x%x)') do
-        local n = tonumber(match, 16)
-        if n and n >= 32 and n <= 126 then
-            table.insert(hex_strings, string.char(n))
         end
     end
 
@@ -96,6 +121,8 @@ end
 local res = {
     wearedevs = decode_wearedevs(input),
     prometheus = decode_prometheus(input),
+    ironbrew = decode_ironbrew(input),
+    moonsec = decode_moonsec(input),
     generic = decode_generic(input)
 }
 
@@ -104,6 +131,10 @@ if res.wearedevs then
     summary_detected = res.wearedevs.detected
 elseif res.prometheus then
     summary_detected = res.prometheus.detected
+elseif res.ironbrew then
+    summary_detected = res.ironbrew.detected
+elseif res.moonsec then
+    summary_detected = res.moonsec.detected
 end
 res.detectedType = summary_detected
 

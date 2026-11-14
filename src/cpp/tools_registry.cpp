@@ -114,10 +114,10 @@ Json list_plus_tools() {
         })));
 
     a.push_back(make_tool("simpledeobf",
-        "Deobfuscate and analyze protected Lua/Luau scripts with automatic detection (WeAreDevs, Prometheus V2, string encryption, and character array folding).",
+        "Deobfuscate and analyze protected Lua/Luau scripts with automatic detection (WeAreDevs, Prometheus V2, IronBrew 2, MoonSec V2/V3, string encryption, and character array folding).",
         Json::object({
             {"script", prop_str("Obfuscated Luau script code or payload")},
-            {"mode", prop_str("Deobfuscation mode: auto, wearedevs, prometheus, generic", "auto")},
+            {"mode", prop_str("Deobfuscation mode: auto, wearedevs, prometheus, ironbrew, moonsec, generic", "auto")},
             {"extractStrings", prop_bool("Extract decrypted strings and literals", true)},
             {"extractUrls", prop_bool("Extract hidden URLs, webhooks, and endpoints", true)}
         }), {"script"}));

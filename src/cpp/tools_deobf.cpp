@@ -68,6 +68,28 @@ static std::vector<std::string> extract_urls(const std::string& s) {
     return urls;
 }
 
+static std::vector<std::string> extract_printable_strings(const std::string& data, size_t min_len = 3) {
+    std::vector<std::string> out;
+    std::unordered_set<std::string> seen;
+    std::string cur;
+    for (unsigned char c : data) {
+        if (c >= 32 && c <= 126) {
+            cur.push_back(static_cast<char>(c));
+        } else {
+            if (cur.size() >= min_len) {
+                if (seen.insert(cur).second) {
+                    out.push_back(cur);
+                }
+            }
+            cur.clear();
+        }
+    }
+    if (cur.size() >= min_len && seen.insert(cur).second) {
+        out.push_back(cur);
+    }
+    return out;
+}
+
 static std::string fold_string_concats(std::string code) {
     bool changed = true;
     int limit = 20;
@@ -335,6 +357,269 @@ static PrometheusResult decode_prometheus_script(const std::string& src) {
 }
 
 // -------------------------------------------------------------
+// IronBrew 2 (IB2) Deobfuscator Pipeline
+// -------------------------------------------------------------
+struct IronBrewResult {
+    bool detected = false;
+    std::string version = "IB2 / 2.7.x";
+    std::string confidence = "low";
+    std::vector<std::string> appliedPasses;
+    std::vector<std::string> decodedStrings;
+    std::vector<std::string> extractedUrls;
+    std::vector<std::string> extractedGlobals;
+    std::vector<std::string> extractedServices;
+    std::string reconstructedCode;
+};
+
+static IronBrewResult decode_ironbrew_script(const std::string& src) {
+    IronBrewResult res;
+    int score = 0;
+    if (src.find("IronBrew") != std::string::npos ||
+        src.find("Ironbrew") != std::string::npos ||
+        src.find("ironbrew") != std::string::npos ||
+        src.find("This file was protected using IronBrew") != std::string::npos) {
+        score += 4;
+        res.version = "IronBrew 2 / Luraph Legacy";
+    }
+    if (src.find("bit32") != std::string::npos || src.find("bit.band") != std::string::npos || src.find("bit.rshift") != std::string::npos) {
+        score += 1;
+    }
+    if (src.find("while true do") != std::string::npos || src.find("repeat until") != std::string::npos) {
+        score += 1;
+    }
+    if (src.find("gBit") != std::string::npos || src.find("gBits") != std::string::npos || src.find("gInt") != std::string::npos || src.find("gString") != std::string::npos) {
+        score += 3;
+    }
+
+    if (score >= 3) {
+        res.detected = true;
+        res.confidence = (score >= 4) ? "high" : "medium";
+    }
+
+    res.appliedPasses.push_back("IronBrewSignatureDetect");
+
+    // Extract all string literals (the bytecode chunk and string constants)
+    static const std::regex str_literal_re(R"lit("([^"\\]*(?:\\.[^"\\]*)*)")lit");
+    std::sregex_iterator sit(src.begin(), src.end(), str_literal_re);
+    std::sregex_iterator send;
+    std::string largest_chunk;
+
+    for (; sit != send; ++sit) {
+        std::string raw = sit->str(1);
+        std::string unescaped = unescape_lua_string(raw);
+        if (unescaped.size() > largest_chunk.size()) {
+            largest_chunk = unescaped;
+        }
+        auto printables = extract_printable_strings(unescaped, 3);
+        for (const auto& s : printables) {
+            res.decodedStrings.push_back(s);
+        }
+    }
+
+    res.appliedPasses.push_back("BytecodeChunkExtract");
+    res.appliedPasses.push_back("ConstantPoolUnpack");
+
+    // Classify IOCs, Services, Globals, and Remotes
+    static const std::unordered_set<std::string> known_services = {
+        "Players", "ReplicatedStorage", "Workspace", "RunService", "HttpService",
+        "StarterGui", "UserInputService", "TweenService", "Lighting", "CoreGui"
+    };
+    static const std::unordered_set<std::string> known_globals = {
+        "print", "warn", "loadstring", "HttpGet", "HttpPost", "setclipboard",
+        "getgenv", "getfenv", "hookmetamethod", "hookfunction", "fireclickdetector"
+    };
+
+    std::unordered_set<std::string> seen_str;
+    for (const auto& s : res.decodedStrings) {
+        if (!seen_str.insert(s).second) continue;
+
+        if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0) {
+            res.extractedUrls.push_back(s);
+        } else if (known_services.count(s)) {
+            res.extractedServices.push_back(s);
+        } else if (known_globals.count(s)) {
+            res.extractedGlobals.push_back(s);
+        }
+    }
+
+    // Build human-readable reconstructed summary
+    std::ostringstream recon;
+    recon << "-- [[ IronBrew 2 VM Deobfuscation Analysis ]]\n";
+    recon << "-- Protected Version: " << res.version << "\n";
+    recon << "-- Bytecode Chunk Size: " << largest_chunk.size() << " bytes\n\n";
+
+    if (!res.extractedUrls.empty()) {
+        recon << "-- [Extracted Network Endpoints / Webhooks]\n";
+        for (const auto& u : res.extractedUrls) {
+            recon << "-- " << u << "\n";
+        }
+        recon << "\n";
+    }
+
+    if (!res.extractedServices.empty()) {
+        recon << "-- [Referenced Game Services]\n";
+        for (const auto& s : res.extractedServices) {
+            recon << "local " << s << " = game:GetService(\"" << s << "\")\n";
+        }
+        recon << "\n";
+    }
+
+    if (!res.extractedGlobals.empty()) {
+        recon << "-- [Referenced Globals / APIs]\n";
+        recon << "-- ";
+        for (size_t i = 0; i < res.extractedGlobals.size(); ++i) {
+            recon << res.extractedGlobals[i] << (i + 1 < res.extractedGlobals.size() ? ", " : "\n\n");
+        }
+    }
+
+    recon << "-- [Constant String Pool (" << res.decodedStrings.size() << " strings unpacked)]\n";
+    size_t preview_limit = std::min<size_t>(res.decodedStrings.size(), 30);
+    for (size_t i = 0; i < preview_limit; ++i) {
+        recon << "-- [" << (i + 1) << "] " << res.decodedStrings[i] << "\n";
+    }
+    if (res.decodedStrings.size() > preview_limit) {
+        recon << "-- ... (" << (res.decodedStrings.size() - preview_limit) << " more strings)\n";
+    }
+
+    res.reconstructedCode = recon.str();
+    return res;
+}
+
+// -------------------------------------------------------------
+// MoonSec V2 / V3 Deobfuscator Pipeline
+// -------------------------------------------------------------
+struct MoonSecResult {
+    bool detected = false;
+    std::string version = "MoonSec V2/V3";
+    std::string confidence = "low";
+    uint8_t recoveredXorKey = 0;
+    std::vector<std::string> appliedPasses;
+    std::vector<std::string> decodedStrings;
+    std::vector<std::string> extractedUrls;
+    std::string reconstructedCode;
+};
+
+static MoonSecResult decode_moonsec_script(const std::string& src) {
+    MoonSecResult res;
+    int score = 0;
+    if (src.find("MoonSec") != std::string::npos ||
+        src.find("Moonsec") != std::string::npos ||
+        src.find("moonsec") != std::string::npos) {
+        score += 4;
+        if (src.find("V3") != std::string::npos || src.find("v3") != std::string::npos) {
+            res.version = "MoonSec V3";
+        } else {
+            res.version = "MoonSec V2";
+        }
+    }
+    if (src.find("bxor") != std::string::npos || src.find("~") != std::string::npos) {
+        score += 1;
+    }
+    if (src.find("\\") != std::string::npos && (src.find("return(") != std::string::npos || src.find("(function(") != std::string::npos)) {
+        score += 1;
+    }
+
+    if (score >= 2) {
+        res.detected = true;
+        res.confidence = (score >= 4) ? "high" : "medium";
+    }
+
+    res.appliedPasses.push_back("MoonSecSignatureDetect");
+
+    // Extract the primary encrypted byte chunk
+    static const std::regex str_literal_re(R"lit("([^"\\]*(?:\\.[^"\\]*)*)")lit");
+    std::sregex_iterator sit(src.begin(), src.end(), str_literal_re);
+    std::sregex_iterator send;
+    std::string largest_chunk;
+
+    for (; sit != send; ++sit) {
+        std::string raw = sit->str(1);
+        std::string unescaped = unescape_lua_string(raw);
+        if (unescaped.size() > largest_chunk.size()) {
+            largest_chunk = std::move(unescaped);
+        }
+    }
+
+    // Recover XOR / Byte encryption key by heuristic frequency analysis
+    uint8_t best_key = 0;
+    size_t max_ascii_score = 0;
+
+    if (!largest_chunk.empty()) {
+        for (int k = 1; k < 256; ++k) {
+            size_t ascii_count = 0;
+            size_t sample_size = std::min<size_t>(largest_chunk.size(), 400);
+            for (size_t i = 0; i < sample_size; ++i) {
+                unsigned char dec = static_cast<unsigned char>(largest_chunk[i]) ^ static_cast<unsigned char>(k);
+                if ((dec >= 'a' && dec <= 'z') || (dec >= 'A' && dec <= 'Z') || (dec >= '0' && dec <= '9') || dec == '_' || dec == '/' || dec == ':') {
+                    ascii_count++;
+                }
+            }
+            if (ascii_count > max_ascii_score) {
+                max_ascii_score = ascii_count;
+                best_key = static_cast<uint8_t>(k);
+            }
+        }
+    }
+
+    std::string decrypted_payload = largest_chunk;
+    if (max_ascii_score > 30) {
+        res.recoveredXorKey = best_key;
+        res.appliedPasses.push_back("XorKeyRecovery");
+        for (size_t i = 0; i < decrypted_payload.size(); ++i) {
+            decrypted_payload[i] = static_cast<char>(static_cast<unsigned char>(decrypted_payload[i]) ^ best_key);
+        }
+        res.appliedPasses.push_back("BytecodeDecrypt");
+    }
+
+    // Extract printable strings from both raw and decrypted chunks
+    auto strings_dec = extract_printable_strings(decrypted_payload, 3);
+    auto strings_raw = extract_printable_strings(largest_chunk, 3);
+
+    std::unordered_set<std::string> seen;
+    for (const auto& s : strings_dec) {
+        if (seen.insert(s).second) res.decodedStrings.push_back(s);
+    }
+    for (const auto& s : strings_raw) {
+        if (seen.insert(s).second) res.decodedStrings.push_back(s);
+    }
+
+    res.appliedPasses.push_back("ConstantPoolUnpack");
+
+    for (const auto& s : res.decodedStrings) {
+        auto urls = extract_urls(s);
+        res.extractedUrls.insert(res.extractedUrls.end(), urls.begin(), urls.end());
+    }
+
+    std::ostringstream recon;
+    recon << "-- [[ MoonSec Deobfuscation Analysis ]]\n";
+    recon << "-- Version: " << res.version << "\n";
+    if (res.recoveredXorKey != 0) {
+        recon << "-- Recovered XOR Decryption Key: 0x" << std::hex << static_cast<int>(res.recoveredXorKey) << std::dec << "\n";
+    }
+    recon << "-- Encrypted Bytecode Size: " << largest_chunk.size() << " bytes\n\n";
+
+    if (!res.extractedUrls.empty()) {
+        recon << "-- [Extracted Network Endpoints / Webhooks]\n";
+        for (const auto& u : res.extractedUrls) {
+            recon << "-- " << u << "\n";
+        }
+        recon << "\n";
+    }
+
+    recon << "-- [Unpacked Constants & Identifiers (" << res.decodedStrings.size() << " strings)]\n";
+    size_t preview_limit = std::min<size_t>(res.decodedStrings.size(), 30);
+    for (size_t i = 0; i < preview_limit; ++i) {
+        recon << "-- [" << (i + 1) << "] " << res.decodedStrings[i] << "\n";
+    }
+    if (res.decodedStrings.size() > preview_limit) {
+        recon << "-- ... (" << (res.decodedStrings.size() - preview_limit) << " more strings)\n";
+    }
+
+    res.reconstructedCode = recon.str();
+    return res;
+}
+
+// -------------------------------------------------------------
 // Generic Deobfuscator
 // -------------------------------------------------------------
 static Json decode_generic_script(const std::string& src) {
@@ -388,6 +673,7 @@ Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
     std::vector<std::string> all_strings;
     std::vector<std::string> all_urls;
     Json security_report = Json::object();
+    Json extra_metadata = Json::object();
 
     if (mode == "auto" || mode == "wearedevs") {
         WeAreDevsResult wd = decode_wearedevs_script(script);
@@ -414,6 +700,41 @@ Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
             deobf_code = pr.reconstructedCode;
             all_strings = std::move(pr.decodedStrings);
             all_urls = std::move(pr.extractedUrls);
+        }
+    }
+
+    if (detected_type == "Generic / Unknown" && (mode == "auto" || mode == "ironbrew")) {
+        IronBrewResult ib = decode_ironbrew_script(script);
+        if (ib.detected || mode == "ironbrew") {
+            detected_type = ib.version;
+            confidence = ib.confidence;
+            chosen_mode = "ironbrew";
+            passes = std::move(ib.appliedPasses);
+            deobf_code = ib.reconstructedCode;
+            all_strings = std::move(ib.decodedStrings);
+            all_urls = std::move(ib.extractedUrls);
+            Json s_arr = Json::array();
+            for (const auto& s : ib.extractedServices) s_arr.as_array().push_back(Json(s));
+            extra_metadata.as_object()["referencedServices"] = std::move(s_arr);
+            Json g_arr = Json::array();
+            for (const auto& g : ib.extractedGlobals) g_arr.as_array().push_back(Json(g));
+            extra_metadata.as_object()["referencedGlobals"] = std::move(g_arr);
+        }
+    }
+
+    if (detected_type == "Generic / Unknown" && (mode == "auto" || mode == "moonsec")) {
+        MoonSecResult ms = decode_moonsec_script(script);
+        if (ms.detected || mode == "moonsec") {
+            detected_type = ms.version;
+            confidence = ms.confidence;
+            chosen_mode = "moonsec";
+            passes = std::move(ms.appliedPasses);
+            deobf_code = ms.reconstructedCode;
+            all_strings = std::move(ms.decodedStrings);
+            all_urls = std::move(ms.extractedUrls);
+            if (ms.recoveredXorKey != 0) {
+                extra_metadata.as_object()["recoveredXorKey"] = Json(static_cast<int64_t>(ms.recoveredXorKey));
+            }
         }
     }
 
@@ -472,6 +793,9 @@ Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
     }
 
     out.as_object()["securityAnalysis"] = std::move(security_report);
+    if (!extra_metadata.as_object().empty()) {
+        out.as_object()["metadata"] = std::move(extra_metadata);
+    }
 
     return tool_text_response(out);
 }
