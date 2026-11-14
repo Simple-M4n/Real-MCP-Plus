@@ -199,7 +199,11 @@ Json parse_tool_json_or_raw(const Json& res) {
 
 Json eval_luau_safe(RealBridge& real, const std::string& label, const std::string& code) {
     try {
-        Json res = real.call_tool("eval", Json::object({{"code", Json(code)}}));
+        Json res = real.call_tool("eval", Json::object({
+            {"expression", Json(code)},
+            {"maxOutputChars", Json(static_cast<int64_t>(1000000))},
+            {"timeout", Json(static_cast<int64_t>(60000))}
+        }));
         if (res.is_object() && res.get("isError").as_bool(false)) {
             return Json::object({{"error", Json(extract_tool_text(res))}, {"step", Json(label)}});
         }

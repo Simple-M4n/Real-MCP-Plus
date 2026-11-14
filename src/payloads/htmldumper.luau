@@ -7,12 +7,13 @@ local MAX_DEPTH = __MAX_DEPTH__
 local INCLUDE_SOURCE = __INCLUDE_SOURCE__
 
 local total_scanned = 0
+local MAX_ITEMS = 3000
 
 local function safe_prop(inst, prop)
     local ok, val = pcall(function() return inst[prop] end)
     if ok and val ~= nil then
         if typeof(val) == "Vector3" then
-            return { math.floor(val.X*100)/100, math.floor(val.Y*100)/100, math.floor(val.Z*100)/100 }
+            return { math.floor(val.X*10)/10, math.floor(val.Y*10)/10, math.floor(val.Z*10)/10 }
         elseif typeof(val) == "Color3" then
             return { math.floor(val.R*255), math.floor(val.G*255), math.floor(val.B*255) }
         elseif typeof(val) == "UDim2" then
@@ -30,7 +31,7 @@ end
 -- MODE: Structure (names, classNames, paths, hierarchy only)
 -- -------------------------------------------------------------
 local function scan_structure(inst, depth)
-    if not inst or depth > MAX_DEPTH then return nil end
+    if not inst or depth > MAX_DEPTH or total_scanned >= MAX_ITEMS then return nil end
     total_scanned = total_scanned + 1
 
     local node = {
@@ -41,8 +42,10 @@ local function scan_structure(inst, depth)
 
     local ch = {}
     for _, c in ipairs(inst:GetChildren()) do
-        local child_node = scan_structure(c, depth + 1)
-        if child_node then table.insert(ch, child_node) end
+        if not c:IsA("Terrain") and not c:IsA("Camera") and total_scanned < MAX_ITEMS then
+            local child_node = scan_structure(c, depth + 1)
+            if child_node then table.insert(ch, child_node) end
+        end
     end
     if #ch > 0 then node.children = ch end
     return node
@@ -52,7 +55,7 @@ end
 -- MODE: All (full hierarchy, properties, attributes, scripts)
 -- -------------------------------------------------------------
 local function scan_all(inst, depth)
-    if not inst or depth > MAX_DEPTH then return nil end
+    if not inst or depth > MAX_DEPTH or total_scanned >= MAX_ITEMS then return nil end
     total_scanned = total_scanned + 1
 
     local node = {
@@ -96,7 +99,7 @@ local function scan_all(inst, depth)
             end
         end)
         if src and #src > 0 then
-            if #src > 50000 then src = src:sub(1, 50000) .. "\n-- [Truncated...]" end
+            if #src > 30000 then src = src:sub(1, 30000) .. "\n-- [Truncated...]" end
             props.source = src
             props.sourceBytes = #src
         end
@@ -108,8 +111,10 @@ local function scan_all(inst, depth)
 
     local ch = {}
     for _, c in ipairs(inst:GetChildren()) do
-        local child_node = scan_all(c, depth + 1)
-        if child_node then table.insert(ch, child_node) end
+        if not c:IsA("Terrain") and not c:IsA("Camera") and total_scanned < MAX_ITEMS then
+            local child_node = scan_all(c, depth + 1)
+            if child_node then table.insert(ch, child_node) end
+        end
     end
     if #ch > 0 then node.children = ch end
     return node
@@ -119,13 +124,15 @@ end
 -- MODE: Script (only LocalScript & ModuleScript hierarchy & source)
 -- -------------------------------------------------------------
 local function scan_scripts(inst, depth)
-    if not inst or depth > MAX_DEPTH then return nil end
+    if not inst or depth > MAX_DEPTH or total_scanned >= MAX_ITEMS then return nil end
 
     local is_script = inst:IsA("LocalScript") or inst:IsA("ModuleScript")
     local ch = {}
     for _, c in ipairs(inst:GetChildren()) do
-        local sub = scan_scripts(c, depth + 1)
-        if sub then table.insert(ch, sub) end
+        if not c:IsA("Terrain") and not c:IsA("Camera") and total_scanned < MAX_ITEMS then
+            local sub = scan_scripts(c, depth + 1)
+            if sub then table.insert(ch, sub) end
+        end
     end
 
     if is_script or #ch > 0 then
@@ -138,19 +145,21 @@ local function scan_scripts(inst, depth)
         }
         if is_script then
             local src = nil
-            pcall(function()
-                if typeof(decompile) == "function" then
-                    src = decompile(inst)
-                end
-            end)
+            if INCLUDE_SOURCE then
+                pcall(function()
+                    if typeof(decompile) == "function" then
+                        src = decompile(inst)
+                    end
+                end)
+            end
             node.hasSource = (src ~= nil and #src > 0)
             if src then
-                if #src > 60000 then src = src:sub(1, 60000) .. "\n-- [Truncated...]" end
+                if #src > 40000 then src = src:sub(1, 40000) .. "\n-- [Truncated...]" end
                 node.source = src
                 local _, lines = src:gsub("\n", "\n")
                 node.lineCount = lines + 1
             else
-                node.source = "-- [Decompile unavailable or empty]"
+                node.source = "-- [Decompile unavailable or skipped]"
                 node.lineCount = 0
             end
         end
@@ -168,7 +177,7 @@ local function scan_humanoids()
     local ws = workspace
 
     for _, desc in ipairs(ws:GetDescendants()) do
-        if desc:IsA("Humanoid") and desc.Parent and desc.Parent:IsA("Model") then
+        if desc:IsA("Humanoid") and desc.Parent and desc.Parent:IsA("Model") and total_scanned < MAX_ITEMS then
             total_scanned = total_scanned + 1
             local model = desc.Parent
             local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model.PrimaryPart
@@ -214,7 +223,7 @@ end
 -- MODE: UI (PlayerGui, StarterGui, CoreGui structure & widgets)
 -- -------------------------------------------------------------
 local function scan_ui_node(inst, depth)
-    if not inst or depth > MAX_DEPTH then return nil end
+    if not inst or depth > MAX_DEPTH or total_scanned >= MAX_ITEMS then return nil end
     total_scanned = total_scanned + 1
 
     local node = {
@@ -241,7 +250,7 @@ local function scan_ui_node(inst, depth)
 
     local ch = {}
     for _, c in ipairs(inst:GetChildren()) do
-        if c:IsA("GuiBase2d") or c:IsA("ScreenGui") or c:IsA("UIComponent") then
+        if (c:IsA("GuiBase2d") or c:IsA("ScreenGui") or c:IsA("UIComponent")) and total_scanned < MAX_ITEMS then
             local sub = scan_ui_node(c, depth + 1)
             if sub then table.insert(ch, sub) end
         end
@@ -270,9 +279,6 @@ if MODE == "Structure" then
     if TARGET == "all" or TARGET == "ReplicatedStorage" then
         result_data.ReplicatedStorage = scan_structure(game:GetService("ReplicatedStorage"), 1)
     end
-    if TARGET == "all" or TARGET == "Workspace" then
-        result_data.Workspace = scan_structure(workspace, 1)
-    end
     if TARGET == "all" or TARGET == "StarterGui" then
         result_data.StarterGui = scan_structure(game:GetService("StarterGui"), 1)
     end
@@ -282,12 +288,19 @@ if MODE == "Structure" then
     if (TARGET == "all" or TARGET == "PlayerGui") and lp and lp:FindFirstChild("PlayerGui") then
         result_data.PlayerGui = scan_structure(lp.PlayerGui, 1)
     end
+    if TARGET == "all" or TARGET == "Workspace" then
+        local ws_dump = { name = "Workspace", className = "Workspace", children = {} }
+        for _, child in ipairs(workspace:GetChildren()) do
+            if not child:IsA("Terrain") and not child:IsA("Camera") and total_scanned < MAX_ITEMS then
+                local s = scan_structure(child, 1)
+                if s then table.insert(ws_dump.children, s) end
+            end
+        end
+        result_data.Workspace = ws_dump
+    end
 elseif MODE == "All" then
     if TARGET == "all" or TARGET == "ReplicatedStorage" then
         result_data.ReplicatedStorage = scan_all(game:GetService("ReplicatedStorage"), 1)
-    end
-    if TARGET == "all" or TARGET == "Workspace" then
-        result_data.Workspace = scan_all(workspace, 1)
     end
     if TARGET == "all" or TARGET == "StarterGui" then
         result_data.StarterGui = scan_all(game:GetService("StarterGui"), 1)
@@ -298,18 +311,35 @@ elseif MODE == "All" then
     if (TARGET == "all" or TARGET == "PlayerGui") and lp and lp:FindFirstChild("PlayerGui") then
         result_data.PlayerGui = scan_all(lp.PlayerGui, 1)
     end
+    if TARGET == "all" or TARGET == "Workspace" then
+        local ws_dump = { name = "Workspace", className = "Workspace", children = {} }
+        for _, child in ipairs(workspace:GetChildren()) do
+            if not child:IsA("Terrain") and not child:IsA("Camera") and total_scanned < MAX_ITEMS then
+                local s = scan_all(child, 1)
+                if s then table.insert(ws_dump.children, s) end
+            end
+        end
+        result_data.Workspace = ws_dump
+    end
 elseif MODE == "Script" then
     if TARGET == "all" or TARGET == "ReplicatedStorage" then
         result_data.ReplicatedStorage = scan_scripts(game:GetService("ReplicatedStorage"), 1)
-    end
-    if TARGET == "all" or TARGET == "Workspace" then
-        result_data.Workspace = scan_scripts(workspace, 1)
     end
     if TARGET == "all" or TARGET == "StarterPlayer" then
         result_data.StarterPlayer = scan_scripts(game:GetService("StarterPlayer"), 1)
     end
     if (TARGET == "all" or TARGET == "PlayerGui") and lp and lp:FindFirstChild("PlayerGui") then
         result_data.PlayerGui = scan_scripts(lp.PlayerGui, 1)
+    end
+    if TARGET == "all" or TARGET == "Workspace" then
+        local ws_dump = { name = "Workspace", className = "Workspace", children = {} }
+        for _, child in ipairs(workspace:GetChildren()) do
+            if not child:IsA("Terrain") and not child:IsA("Camera") and total_scanned < MAX_ITEMS then
+                local s = scan_scripts(child, 1)
+                if s then table.insert(ws_dump.children, s) end
+            end
+        end
+        result_data.Workspace = ws_dump
     end
 elseif MODE == "Humanoid" then
     result_data.Entities = scan_humanoids()
