@@ -92,10 +92,10 @@ Json list_plus_tools() {
         })));
 
     a.push_back(make_tool("web-scripts",
-        "Search ScriptBlox and RScripts for Roblox scripts by query or current game PlaceId/Name, optionally fetching source.",
+        "Search ScriptBlox, RScripts, rblxscripts.net, and haxhell.com for Roblox scripts by query or current game PlaceId/Name, optionally fetching source.",
         Json::object({
             {"query", prop_str("Search query or game name")},
-            {"platform", prop_str("Target platform: all, scriptblox, rscripts", "all")},
+            {"platform", prop_str("Target platform: all, scriptblox, rscripts, rblxscripts, haxhell", "all")},
             {"mode", prop_str("Filter mode: all, free, paid", "all")},
             {"useCurrentGame", prop_bool("Auto-query using current Roblox game info", false)},
             {"fetchSource", prop_bool("Fetch raw script source when available", false)},

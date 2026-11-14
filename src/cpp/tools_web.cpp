@@ -186,6 +186,122 @@ static Json fetch_rscripts(const std::string& query, const std::string& mode, in
     });
 }
 
+static Json fetch_rblxscripts(const std::string& query, int64_t max_res, bool fetch_source) {
+    std::string url = "https://api.rblxscripts.net/v1/search?q=" + url_encode(query) + "&type=scripts";
+    std::string body, err;
+    int status = 0;
+    if (!http_get_str(url, 15000, body, status, err)) {
+        return Json::object({{"error", Json(err)}, {"status", Json(static_cast<int64_t>(status))}});
+    }
+
+    Json parsed;
+    if (!Json::try_parse(body, parsed)) {
+        return Json::object({{"error", Json("Invalid JSON from rblxscripts.net")}});
+    }
+
+    const Json& scripts = parsed.get("data").get("scripts");
+    if (!scripts.is_array()) {
+        return Json::object({{"scripts", Json::array()}, {"raw", parsed}});
+    }
+
+    Json items = Json::array();
+    for (const auto& s : scripts.as_array()) {
+        if (!s.is_object()) continue;
+        if (static_cast<int64_t>(items.as_array().size()) >= max_res) break;
+
+        std::string id = s.get("id").as_string("");
+        std::string title = s.get("title").as_string("");
+        std::string slug = s.get("slug").as_string("");
+        std::string raw_url = s.get("rawUrl").as_string("");
+        std::string game_name = s.get("game").get("name").as_string("");
+
+        Json item = Json::object({
+            {"platform", Json("rblxscripts")},
+            {"id", Json(id)},
+            {"title", Json(title)},
+            {"game", Json(game_name)},
+            {"slug", Json(slug)},
+            {"keySystem", Json(s.get("key").as_bool(false))},
+            {"patched", Json(s.get("isPatched").as_bool(false))},
+            {"rawUrl", Json(raw_url)},
+            {"url", Json(s.get("url").as_string(""))}
+        });
+
+        if (fetch_source && !raw_url.empty()) {
+            std::string src_body, src_err;
+            int sstat = 0;
+            if (http_get_str(raw_url, 10000, src_body, sstat, src_err)) {
+                if (src_body.size() > 16000) src_body.resize(16000);
+                item.as_object()["source"] = Json(src_body);
+            }
+        }
+        items.as_array().push_back(std::move(item));
+    }
+
+    return Json::object({
+        {"count", Json(static_cast<int64_t>(items.as_array().size()))},
+        {"scripts", std::move(items)}
+    });
+}
+
+static Json fetch_haxhell(const std::string& query, int64_t max_res, bool fetch_source) {
+    std::string url = "https://haxhell.com/api/v1/scripts?q=" + url_encode(query);
+    std::string body, err;
+    int status = 0;
+    if (!http_get_str(url, 15000, body, status, err)) {
+        return Json::object({{"error", Json(err)}, {"status", Json(static_cast<int64_t>(status))}});
+    }
+
+    Json parsed;
+    if (!Json::try_parse(body, parsed)) {
+        return Json::object({{"error", Json("Invalid JSON from haxhell.com")}});
+    }
+
+    const Json& scripts = parsed.get("data");
+    if (!scripts.is_array()) {
+        return Json::object({{"scripts", Json::array()}, {"raw", parsed}});
+    }
+
+    Json items = Json::array();
+    for (const auto& s : scripts.as_array()) {
+        if (!s.is_object()) continue;
+        if (static_cast<int64_t>(items.as_array().size()) >= max_res) break;
+
+        std::string id = s.get("id").as_string("");
+        std::string title = s.get("title").as_string("");
+        std::string slug = s.get("slug").as_string("");
+        std::string game_name = s.get("game").get("name").as_string("");
+        std::string raw_url = s.get("links").get("raw").as_string("");
+
+        Json item = Json::object({
+            {"platform", Json("haxhell")},
+            {"id", Json(id)},
+            {"title", Json(title)},
+            {"game", Json(game_name)},
+            {"slug", Json(slug)},
+            {"keySystem", Json(s.get("flags").get("keySystem").as_bool(false))},
+            {"patched", Json(s.get("flags").get("patched").as_bool(false))},
+            {"rawUrl", Json(raw_url)},
+            {"url", Json(s.get("links").get("webpage").as_string(""))}
+        });
+
+        if (fetch_source && !raw_url.empty()) {
+            std::string src_body, src_err;
+            int sstat = 0;
+            if (http_get_str(raw_url, 10000, src_body, sstat, src_err)) {
+                if (src_body.size() > 16000) src_body.resize(16000);
+                item.as_object()["source"] = Json(src_body);
+            }
+        }
+        items.as_array().push_back(std::move(item));
+    }
+
+    return Json::object({
+        {"count", Json(static_cast<int64_t>(items.as_array().size()))},
+        {"scripts", std::move(items)}
+    });
+}
+
 Json run_web_scripts_opt(RealBridge* real, const Json& args) {
     std::string query = args.get("query").as_string("");
     std::string platform = args.get("platform").as_string("all");
@@ -228,13 +344,25 @@ Json run_web_scripts_opt(RealBridge* real, const Json& args) {
         auto rs_task = std::async(std::launch::async, [&]() {
             return fetch_rscripts(query, mode, page, max_res, fetch_src);
         });
+        auto rblx_task = std::async(std::launch::async, [&]() {
+            return fetch_rblxscripts(query, max_res, fetch_src);
+        });
+        auto hax_task = std::async(std::launch::async, [&]() {
+            return fetch_haxhell(query, max_res, fetch_src);
+        });
         report.as_object()["scriptblox"] = sb_task.get();
         report.as_object()["rscripts"] = rs_task.get();
+        report.as_object()["rblxscripts"] = rblx_task.get();
+        report.as_object()["haxhell"] = hax_task.get();
     } else {
         if (platform == "scriptblox") {
             report.as_object()["scriptblox"] = fetch_scriptblox(query, mode, page, max_res, fetch_src);
         } else if (platform == "rscripts") {
             report.as_object()["rscripts"] = fetch_rscripts(query, mode, page, max_res, fetch_src);
+        } else if (platform == "rblxscripts") {
+            report.as_object()["rblxscripts"] = fetch_rblxscripts(query, max_res, fetch_src);
+        } else if (platform == "haxhell") {
+            report.as_object()["haxhell"] = fetch_haxhell(query, max_res, fetch_src);
         }
     }
 
