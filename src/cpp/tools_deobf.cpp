@@ -2,8 +2,10 @@
 #include "payloads_gen.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <unordered_map>
@@ -653,6 +655,489 @@ static Json decode_generic_script(const std::string& src) {
 }
 
 // -------------------------------------------------------------
+// proto-unpack: Bytecode Constants & Table Unpacker Pipeline
+// -------------------------------------------------------------
+struct LuaTableEntry {
+    bool has_index = false;
+    int64_t index = 0;
+    std::string value;
+    bool is_string = false;
+};
+
+static std::vector<LuaTableEntry> parse_lua_table_entries(const std::string& body) {
+    std::vector<LuaTableEntry> entries;
+    size_t i = 0;
+    int64_t auto_idx = 1;
+
+    auto skip_ws = [&]() {
+        while (i < body.size() && (std::isspace(body[i]) || body[i] == ',' || body[i] == ';')) i++;
+    };
+
+    while (i < body.size()) {
+        skip_ws();
+        if (i >= body.size()) break;
+
+        bool has_custom_idx = false;
+        int64_t custom_idx = 0;
+
+        if (body[i] == '[') {
+            i++;
+            skip_ws();
+            size_t idx_start = i;
+            while (i < body.size() && body[i] != ']') i++;
+            std::string idx_str = body.substr(idx_start, i - idx_start);
+            if (i < body.size()) i++;
+            skip_ws();
+            if (i < body.size() && body[i] == '=') i++;
+            skip_ws();
+
+            try {
+                if (idx_str.rfind("0x", 0) == 0 || idx_str.rfind("0X", 0) == 0) {
+                    custom_idx = std::stoll(idx_str, nullptr, 16);
+                } else {
+                    custom_idx = std::stoll(idx_str);
+                }
+                has_custom_idx = true;
+            } catch (...) {}
+        }
+
+        skip_ws();
+        if (i >= body.size()) break;
+
+        if (body[i] == '"' || body[i] == '\'') {
+            char quote = body[i++];
+            std::string val;
+            while (i < body.size() && body[i] != quote) {
+                if (body[i] == '\\' && i + 1 < body.size()) {
+                    val.push_back(body[i]);
+                    val.push_back(body[i + 1]);
+                    i += 2;
+                } else {
+                    val.push_back(body[i++]);
+                }
+            }
+            if (i < body.size()) i++;
+            LuaTableEntry e;
+            e.has_index = has_custom_idx;
+            e.index = has_custom_idx ? custom_idx : auto_idx++;
+            e.value = val;
+            e.is_string = true;
+            entries.push_back(e);
+        } else {
+            size_t val_start = i;
+            while (i < body.size() && body[i] != ',' && body[i] != ';' && body[i] != '}' && !std::isspace(body[i])) {
+                i++;
+            }
+            std::string token = body.substr(val_start, i - val_start);
+            if (!token.empty()) {
+                LuaTableEntry e;
+                e.has_index = has_custom_idx;
+                e.index = has_custom_idx ? custom_idx : auto_idx++;
+                e.value = token;
+                e.is_string = false;
+                entries.push_back(e);
+            }
+        }
+    }
+    return entries;
+}
+
+static std::string fold_string_reverse(std::string code, int& folded_count) {
+    static const std::regex rev_re(R"lit(string\.reverse\s*\(\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*\))lit");
+    std::string out;
+    std::sregex_iterator begin(code.begin(), code.end(), rev_re);
+    std::sregex_iterator end;
+    if (begin == end) return code;
+
+    size_t last_pos = 0;
+    for (auto it = begin; it != end; ++it) {
+        out.append(code, last_pos, it->position() - last_pos);
+        std::string raw = it->str(1);
+        std::string unescaped = unescape_lua_string(raw);
+        std::reverse(unescaped.begin(), unescaped.end());
+        std::string escaped = "\"";
+        for (char ch : unescaped) {
+            if (ch == '"') escaped += "\\\"";
+            else if (ch == '\\') escaped += "\\\\";
+            else if (ch == '\n') escaped += "\\n";
+            else if (ch == '\r') escaped += "\\r";
+            else if (ch == '\t') escaped += "\\t";
+            else escaped.push_back(ch);
+        }
+        escaped += "\"";
+        out += escaped;
+        last_pos = it->position() + it->length();
+        folded_count++;
+    }
+    out.append(code, last_pos, code.size() - last_pos);
+    return out;
+}
+
+static std::string fold_string_sub(std::string code, int& folded_count) {
+    static const std::regex sub_re(R"lit(string\.sub\s*\(\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*,\s*(\d+)\s*,\s*(\d+)\s*\))lit");
+    std::string out;
+    std::sregex_iterator begin(code.begin(), code.end(), sub_re);
+    std::sregex_iterator end;
+    if (begin == end) return code;
+
+    size_t last_pos = 0;
+    for (auto it = begin; it != end; ++it) {
+        out.append(code, last_pos, it->position() - last_pos);
+        std::string raw = it->str(1);
+        std::string unescaped = unescape_lua_string(raw);
+        try {
+            int start = std::stoi(it->str(2));
+            int end_idx = std::stoi(it->str(3));
+            if (start >= 1 && end_idx >= start && static_cast<size_t>(start - 1) < unescaped.size()) {
+                size_t s = static_cast<size_t>(start - 1);
+                size_t len = static_cast<size_t>(end_idx - start + 1);
+                std::string sub = unescaped.substr(s, len);
+                std::string escaped = "\"";
+                for (char ch : sub) {
+                    if (ch == '"') escaped += "\\\"";
+                    else if (ch == '\\') escaped += "\\\\";
+                    else if (ch == '\n') escaped += "\\n";
+                    else if (ch == '\r') escaped += "\\r";
+                    else if (ch == '\t') escaped += "\\t";
+                    else escaped.push_back(ch);
+                }
+                escaped += "\"";
+                out += escaped;
+                folded_count++;
+            } else {
+                out += it->str();
+            }
+        } catch (...) {
+            out += it->str();
+        }
+        last_pos = it->position() + it->length();
+    }
+    out.append(code, last_pos, code.size() - last_pos);
+    return out;
+}
+
+struct ProtoUnpackResult {
+    bool detected = false;
+    std::string confidence = "low";
+    int tablesExtracted = 0;
+    int functionWrappersInlined = 0;
+    int tableLookupsInlined = 0;
+    int builtinsFolded = 0;
+    int bytecodeChunksAnalyzed = 0;
+    uint8_t recoveredXorKey = 0;
+    std::vector<std::string> appliedPasses;
+    std::vector<std::string> unpackedConstants;
+    std::vector<std::string> extractedUrls;
+    std::vector<std::string> referencedServices;
+    std::vector<std::string> referencedGlobals;
+    std::vector<std::string> referencedRemotes;
+    std::string reconstructedCode;
+};
+
+static ProtoUnpackResult decode_proto_unpack(
+    const std::string& src,
+    bool inline_constants = true,
+    bool decode_bytecode = true,
+    bool recover_xor = true,
+    bool fold_builtins = true,
+    bool extract_urls_opt = true,
+    bool extract_iocs = true
+) {
+    ProtoUnpackResult res;
+    std::string working = src;
+    std::unordered_map<std::string, std::map<int64_t, LuaTableEntry>> extracted_tables;
+    std::unordered_set<std::string> seen_constants;
+
+    // 1. Pass: Extract Constant Tables
+    static const std::regex tbl_decl_re(R"(local\s+([A-Za-z0-9_]+)\s*=\s*\{)");
+    auto t_begin = std::sregex_iterator(src.begin(), src.end(), tbl_decl_re);
+    auto t_end = std::sregex_iterator();
+
+    for (auto it = t_begin; it != t_end; ++it) {
+        std::string tbl_name = it->str(1);
+        size_t open_pos = it->position() + it->length() - 1;
+        int depth = 1;
+        size_t cur = open_pos + 1;
+        bool in_q1 = false;
+        bool in_q2 = false;
+
+        while (cur < src.size() && depth > 0) {
+            char c = src[cur];
+            if (c == '\\' && cur + 1 < src.size()) {
+                cur += 2;
+                continue;
+            }
+            if (c == '"' && !in_q2) in_q1 = !in_q1;
+            else if (c == '\'' && !in_q1) in_q2 = !in_q2;
+            else if (!in_q1 && !in_q2) {
+                if (c == '{') depth++;
+                else if (c == '}') depth--;
+            }
+            cur++;
+        }
+
+        if (depth == 0) {
+            size_t close_pos = cur - 1;
+            std::string body = src.substr(open_pos + 1, close_pos - open_pos - 1);
+            auto parsed = parse_lua_table_entries(body);
+            if (!parsed.empty()) {
+                res.tablesExtracted++;
+                for (const auto& entry : parsed) {
+                    if (entry.is_string) {
+                        std::string unesc = unescape_lua_string(entry.value);
+                        if (!unesc.empty() && seen_constants.insert(unesc).second) {
+                            res.unpackedConstants.push_back(unesc);
+                        }
+                    }
+                    extracted_tables[tbl_name][entry.index] = entry;
+                }
+            }
+        }
+    }
+
+    if (res.tablesExtracted > 0) {
+        res.appliedPasses.push_back("ConstantTableExtract (" + std::to_string(res.tablesExtracted) + " tables)");
+        res.detected = true;
+    }
+
+    // 2. Pass: Wrapper Function Inlining
+    struct Wrapper {
+        std::string fn_name;
+        std::string tbl_name;
+        char op = 0; // 0=direct, '^'=xor, '+'=add, '-'=sub
+        int64_t operand = 0;
+    };
+    std::vector<Wrapper> wrappers;
+
+    static const std::regex wrap_re(
+        R"(local\s+(?:function\s+([A-Za-z0-9_]+)|([A-Za-z0-9_]+)\s*=\s*function)\s*\(\s*([A-Za-z0-9_]+)\s*\)\s*return\s+([A-Za-z0-9_]+)\s*\[\s*(?:(?:bit32\.bxor|bit\.bxor)\s*\(\s*\3\s*,\s*([0-9xXa-fA-F]+)\s*\)|\3\s*([\^\+\-])\s*([0-9xXa-fA-F]+)|\3)\s*\]\s*end)"
+    );
+
+    for (std::sregex_iterator wit(src.begin(), src.end(), wrap_re), wend; wit != wend; ++wit) {
+        Wrapper w;
+        w.fn_name = wit->str(1).empty() ? wit->str(2) : wit->str(1);
+        w.tbl_name = wit->str(4);
+        if (!wit->str(5).empty()) {
+            w.op = '^';
+            try { w.operand = std::stoll(wit->str(5), nullptr, 0); } catch (...) {}
+        } else if (!wit->str(6).empty()) {
+            w.op = wit->str(6)[0];
+            try { w.operand = std::stoll(wit->str(7), nullptr, 0); } catch (...) {}
+        }
+        wrappers.push_back(w);
+    }
+
+    if (!wrappers.empty()) {
+        for (const auto& w : wrappers) {
+            auto tbl_it = extracted_tables.find(w.tbl_name);
+            if (tbl_it == extracted_tables.end()) continue;
+            const auto& entries = tbl_it->second;
+
+            std::regex call_re(R"(\b)" + w.fn_name + R"(\s*\(\s*([0-9xXa-fA-F\-]+)\s*\))");
+            std::string out;
+            size_t last = 0;
+            for (std::sregex_iterator cit(working.begin(), working.end(), call_re), cend; cit != cend; ++cit) {
+                out.append(working, last, cit->position() - last);
+                try {
+                    int64_t arg = std::stoll(cit->str(1), nullptr, 0);
+                    int64_t idx = arg;
+                    if (w.op == '^') idx ^= w.operand;
+                    else if (w.op == '+') idx += w.operand;
+                    else if (w.op == '-') idx -= w.operand;
+
+                    auto e_it = entries.find(idx);
+                    if (e_it != entries.end()) {
+                        res.functionWrappersInlined++;
+                        if (e_it->second.is_string) {
+                            out += "\"" + e_it->second.value + "\"";
+                        } else {
+                            out += e_it->second.value;
+                        }
+                    } else {
+                        out += cit->str();
+                    }
+                } catch (...) {
+                    out += cit->str();
+                }
+                last = cit->position() + cit->length();
+            }
+            out.append(working, last, working.size() - last);
+            working = std::move(out);
+        }
+        if (res.functionWrappersInlined > 0) {
+            res.appliedPasses.push_back("FunctionWrapperInline (" + std::to_string(res.functionWrappersInlined) + " calls)");
+            res.detected = true;
+        }
+    }
+
+    // 3. Pass: Direct Table Index Inlining
+    if (inline_constants && !extracted_tables.empty()) {
+        for (const auto& [tbl_name, entries] : extracted_tables) {
+            std::regex idx_re(R"(\b)" + tbl_name + R"(\s*\[\s*([0-9xXa-fA-F]+)\s*\])");
+            std::string out;
+            size_t last = 0;
+            for (std::sregex_iterator iit(working.begin(), working.end(), idx_re), iend; iit != iend; ++iit) {
+                out.append(working, last, iit->position() - last);
+                try {
+                    int64_t idx = std::stoll(iit->str(1), nullptr, 0);
+                    auto e_it = entries.find(idx);
+                    if (e_it != entries.end()) {
+                        res.tableLookupsInlined++;
+                        if (e_it->second.is_string) {
+                            out += "\"" + e_it->second.value + "\"";
+                        } else {
+                            out += e_it->second.value;
+                        }
+                    } else {
+                        out += iit->str();
+                    }
+                } catch (...) {
+                    out += iit->str();
+                }
+                last = iit->position() + iit->length();
+            }
+            out.append(working, last, working.size() - last);
+            working = std::move(out);
+        }
+        if (res.tableLookupsInlined > 0) {
+            res.appliedPasses.push_back("TableLookupInline (" + std::to_string(res.tableLookupsInlined) + " lookups)");
+            res.detected = true;
+        }
+    }
+
+    // 4. Pass: Builtin Folding
+    if (fold_builtins) {
+        int rev_cnt = 0;
+        working = fold_string_reverse(working, rev_cnt);
+        if (rev_cnt > 0) {
+            res.builtinsFolded += rev_cnt;
+            res.appliedPasses.push_back("FoldStringReverse (" + std::to_string(rev_cnt) + ")");
+        }
+
+        int sub_cnt = 0;
+        working = fold_string_sub(working, sub_cnt);
+        if (sub_cnt > 0) {
+            res.builtinsFolded += sub_cnt;
+            res.appliedPasses.push_back("FoldStringSub (" + std::to_string(sub_cnt) + ")");
+        }
+
+        std::vector<std::string> char_extracted;
+        std::string folded_char = fold_string_char(working, char_extracted);
+        if (!char_extracted.empty()) {
+            working = std::move(folded_char);
+            res.builtinsFolded += static_cast<int>(char_extracted.size());
+            res.appliedPasses.push_back("FoldStringChar (" + std::to_string(char_extracted.size()) + ")");
+            for (const auto& s : char_extracted) {
+                if (seen_constants.insert(s).second) res.unpackedConstants.push_back(s);
+            }
+        }
+
+        working = fold_string_concats(working);
+        res.appliedPasses.push_back("FoldConcats");
+    }
+
+    // 5. Pass: Bytecode Chunk & XOR Constant Pool Unpacking
+    if (decode_bytecode) {
+        static const std::regex str_lit_re(R"lit("([^"\\]*(?:\\.[^"\\]*)*)")lit");
+        for (std::sregex_iterator sit(src.begin(), src.end(), str_lit_re), send; sit != send; ++sit) {
+            std::string raw = sit->str(1);
+            if (raw.size() < 30) continue;
+            std::string chunk = unescape_lua_string(raw);
+            if (chunk.size() < 25) continue;
+
+            res.bytecodeChunksAnalyzed++;
+
+            if (recover_xor) {
+                uint8_t best_k = 0;
+                size_t best_score = 0;
+                size_t sample_size = std::min<size_t>(chunk.size(), 300);
+                for (int k = 1; k < 256; ++k) {
+                    size_t printable = 0;
+                    for (size_t si = 0; si < sample_size; ++si) {
+                        unsigned char dec = static_cast<unsigned char>(chunk[si]) ^ static_cast<unsigned char>(k);
+                        if ((dec >= 'a' && dec <= 'z') || (dec >= 'A' && dec <= 'Z') || (dec >= '0' && dec <= '9') || dec == '_' || dec == '/' || dec == ':') {
+                            printable++;
+                        }
+                    }
+                    if (printable > best_score) {
+                        best_score = printable;
+                        best_k = static_cast<uint8_t>(k);
+                    }
+                }
+                if (best_score > 35 && best_k != 0) {
+                    res.recoveredXorKey = best_k;
+                    std::string dec = chunk;
+                    for (size_t ci = 0; ci < dec.size(); ++ci) {
+                        dec[ci] = static_cast<char>(static_cast<unsigned char>(dec[ci]) ^ best_k);
+                    }
+                    auto p_dec = extract_printable_strings(dec, 3);
+                    for (const auto& s : p_dec) {
+                        if (seen_constants.insert(s).second) res.unpackedConstants.push_back(s);
+                    }
+                }
+            }
+
+            auto printables = extract_printable_strings(chunk, 3);
+            for (const auto& s : printables) {
+                if (seen_constants.insert(s).second) res.unpackedConstants.push_back(s);
+            }
+        }
+        if (res.bytecodeChunksAnalyzed > 0) {
+            res.appliedPasses.push_back("BytecodeConstantUnpack (" + std::to_string(res.bytecodeChunksAnalyzed) + " chunks)");
+            res.detected = true;
+        }
+    }
+
+    // 6. IOC & Security Extraction
+    if (extract_urls_opt) {
+        res.extractedUrls = extract_urls(working);
+        for (const auto& s : res.unpackedConstants) {
+            auto u = extract_urls(s);
+            for (const auto& url : u) {
+                if (std::find(res.extractedUrls.begin(), res.extractedUrls.end(), url) == res.extractedUrls.end()) {
+                    res.extractedUrls.push_back(url);
+                }
+            }
+        }
+    }
+
+    if (extract_iocs) {
+        static const std::unordered_set<std::string> known_srv = {
+            "Players", "Workspace", "ReplicatedStorage", "HttpService", "UserInputService",
+            "RunService", "TweenService", "Lighting", "CoreGui", "StarterGui", "SoundService",
+            "Teams", "MaterialService", "TeleportService", "MarketplaceService"
+        };
+        static const std::unordered_set<std::string> known_glo = {
+            "getgenv", "getfenv", "getrenv", "hookmetamethod", "hookfunction", "loadstring",
+            "setclipboard", "HttpGet", "HttpPost", "request", "newcclosure", "fireclickdetector",
+            "fireproximityprompt", "getrawmetatable", "setreadonly", "checkcaller"
+        };
+
+        for (const auto& s : res.unpackedConstants) {
+            if (known_srv.count(s) && std::find(res.referencedServices.begin(), res.referencedServices.end(), s) == res.referencedServices.end()) {
+                res.referencedServices.push_back(s);
+            }
+            if (known_glo.count(s) && std::find(res.referencedGlobals.begin(), res.referencedGlobals.end(), s) == res.referencedGlobals.end()) {
+                res.referencedGlobals.push_back(s);
+            }
+            if ((s == "FireServer" || s == "InvokeServer" || s == "Fire" || s == "Invoke") &&
+                std::find(res.referencedRemotes.begin(), res.referencedRemotes.end(), s) == res.referencedRemotes.end()) {
+                res.referencedRemotes.push_back(s);
+            }
+        }
+    }
+
+    if (res.functionWrappersInlined > 0 || res.tableLookupsInlined > 5) {
+        res.confidence = "high";
+    } else if (res.tablesExtracted > 0 || res.builtinsFolded > 0 || res.recoveredXorKey != 0) {
+        res.confidence = "medium";
+    }
+
+    res.reconstructedCode = working;
+    return res;
+}
+
+// -------------------------------------------------------------
 // simpledeobf Tool Entrypoints
 // -------------------------------------------------------------
 Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
@@ -738,6 +1223,25 @@ Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
         }
     }
 
+    if (detected_type == "Generic / Unknown" && (mode == "auto" || mode == "proto-unpack")) {
+        ProtoUnpackResult pu = decode_proto_unpack(script, true, true, true, true, extract_urls_opt, true);
+        if (pu.detected || mode == "proto-unpack") {
+            detected_type = "Custom Obfuscator / Proto-Unpack Pipeline";
+            confidence = pu.confidence;
+            chosen_mode = "proto-unpack";
+            passes = std::move(pu.appliedPasses);
+            deobf_code = pu.reconstructedCode;
+            all_strings = std::move(pu.unpackedConstants);
+            all_urls = std::move(pu.extractedUrls);
+            if (pu.recoveredXorKey != 0) {
+                extra_metadata.as_object()["recoveredXorKey"] = Json(static_cast<int64_t>(pu.recoveredXorKey));
+            }
+            extra_metadata.as_object()["tablesExtracted"] = Json(static_cast<int64_t>(pu.tablesExtracted));
+            extra_metadata.as_object()["functionWrappersInlined"] = Json(static_cast<int64_t>(pu.functionWrappersInlined));
+            extra_metadata.as_object()["tableLookupsInlined"] = Json(static_cast<int64_t>(pu.tableLookupsInlined));
+        }
+    }
+
     if (detected_type == "Generic / Unknown") {
         chosen_mode = "generic";
         Json gen = decode_generic_script(script);
@@ -802,6 +1306,93 @@ Json run_simpledeobf_opt([[maybe_unused]] RealBridge* real, const Json& args) {
 
 Json run_simpledeobf(RealBridge& real, const Json& args) {
     return run_simpledeobf_opt(&real, args);
+}
+
+// -------------------------------------------------------------
+// proto-unpack Tool Entrypoints
+// -------------------------------------------------------------
+Json run_proto_unpack_opt([[maybe_unused]] RealBridge* real, const Json& args) {
+    std::string script = args.get("script").as_string("");
+    if (script.empty()) {
+        return tool_error("Argument 'script' must not be empty");
+    }
+
+    bool inline_constants = args.get("inlineConstants").as_bool(true);
+    bool decode_bytecode = args.get("decodeBytecode").as_bool(true);
+    bool recover_xor = args.get("recoverXor").as_bool(true);
+    bool fold_builtins = args.get("foldBuiltins").as_bool(true);
+    bool extract_urls_opt = args.get("extractUrls").as_bool(true);
+    bool extract_iocs = args.get("extractIOCs").as_bool(true);
+
+    ProtoUnpackResult res = decode_proto_unpack(script, inline_constants, decode_bytecode, recover_xor, fold_builtins, extract_urls_opt, extract_iocs);
+
+    Json out = Json::object();
+    out.as_object()["detected"] = Json(res.detected);
+    out.as_object()["confidence"] = Json(res.confidence);
+
+    Json stats = Json::object();
+    stats.as_object()["tablesExtracted"] = Json(static_cast<int64_t>(res.tablesExtracted));
+    stats.as_object()["functionWrappersInlined"] = Json(static_cast<int64_t>(res.functionWrappersInlined));
+    stats.as_object()["tableLookupsInlined"] = Json(static_cast<int64_t>(res.tableLookupsInlined));
+    stats.as_object()["builtinsFolded"] = Json(static_cast<int64_t>(res.builtinsFolded));
+    stats.as_object()["bytecodeChunksAnalyzed"] = Json(static_cast<int64_t>(res.bytecodeChunksAnalyzed));
+    if (res.recoveredXorKey != 0) {
+        stats.as_object()["recoveredXorKey"] = Json(static_cast<int64_t>(res.recoveredXorKey));
+    }
+    out.as_object()["statistics"] = std::move(stats);
+
+    Json passes_arr = Json::array();
+    for (const auto& p : res.appliedPasses) passes_arr.as_array().push_back(Json(p));
+    out.as_object()["passesApplied"] = std::move(passes_arr);
+
+    out.as_object()["reconstructedCode"] = Json(res.reconstructedCode);
+
+    Json const_arr = Json::array();
+    for (const auto& c : res.unpackedConstants) const_arr.as_array().push_back(Json(c));
+    out.as_object()["unpackedConstants"] = std::move(const_arr);
+
+    if (extract_urls_opt) {
+        Json url_arr = Json::array();
+        for (const auto& u : res.extractedUrls) url_arr.as_array().push_back(Json(u));
+        out.as_object()["extractedUrls"] = std::move(url_arr);
+    }
+
+    if (extract_iocs) {
+        Json ioc_obj = Json::object();
+        Json s_arr = Json::array();
+        for (const auto& s : res.referencedServices) s_arr.as_array().push_back(Json(s));
+        ioc_obj.as_object()["referencedServices"] = std::move(s_arr);
+
+        Json g_arr = Json::array();
+        for (const auto& g : res.referencedGlobals) g_arr.as_array().push_back(Json(g));
+        ioc_obj.as_object()["referencedGlobals"] = std::move(g_arr);
+
+        Json r_arr = Json::array();
+        for (const auto& r : res.referencedRemotes) r_arr.as_array().push_back(Json(r));
+        ioc_obj.as_object()["referencedRemotes"] = std::move(r_arr);
+
+        out.as_object()["iocs"] = std::move(ioc_obj);
+    }
+
+    // Security report
+    Json sec = Json::object();
+    Json wh = Json::array();
+    for (const auto& u : res.extractedUrls) {
+        if (u.find("discord.com/api/webhooks") != std::string::npos ||
+            u.find("discordapp.com/api/webhooks") != std::string::npos) {
+            wh.as_array().push_back(Json(u));
+        }
+    }
+    sec.as_object()["discordWebhooks"] = std::move(wh);
+    sec.as_object()["containsLoadstring"] = Json(res.reconstructedCode.find("loadstring") != std::string::npos);
+    sec.as_object()["containsHttpGet"] = Json(res.reconstructedCode.find("HttpGet") != std::string::npos);
+    out.as_object()["securityAnalysis"] = std::move(sec);
+
+    return tool_text_response(out);
+}
+
+Json run_proto_unpack(RealBridge& real, const Json& args) {
+    return run_proto_unpack_opt(&real, args);
 }
 
 // -------------------------------------------------------------

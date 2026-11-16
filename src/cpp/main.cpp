@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
                 })},
                 {"serverInfo", Json::object({
                     {"name", Json("real-mcp-plus")},
-                    {"version", Json("1.0.1")}
+                    {"version", Json("1.0.5")}
                 })}
             }));
             continue;
@@ -240,6 +240,8 @@ int main(int argc, char** argv) {
                                 send_result(id, realplus::run_rbxgame_search_opt(nullptr, targs));
                             } else if (tname == "simpledeobf") {
                                 send_result(id, realplus::run_simpledeobf_opt(nullptr, targs));
+                            } else if (tname == "proto-unpack") {
+                                send_result(id, realplus::run_proto_unpack_opt(nullptr, targs));
                             } else {
                                 auto& real = bridge_mgr.get(saved_init_params);
                                 send_result(id, realplus::dispatch_plus_tool(real, tname, targs));

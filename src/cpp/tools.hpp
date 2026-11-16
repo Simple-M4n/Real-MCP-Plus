@@ -41,6 +41,9 @@ Json run_rbxgame_search_opt(RealBridge* real, const Json& args);
 Json run_simpledeobf(RealBridge& real, const Json& args);
 Json run_simpledeobf_opt(RealBridge* real, const Json& args);
 
+Json run_proto_unpack(RealBridge& real, const Json& args);
+Json run_proto_unpack_opt(RealBridge* real, const Json& args);
+
 Json run_dumper(RealBridge& real, const Json& args);
 
 } // namespace realplus

@@ -1,18 +1,22 @@
-# RealMCP+ (`real-mcp-plus`) v1.0.1
+# RealMCP+ (`real-mcp-plus`) v1.0.5
 
-High-performance composite Model Context Protocol (MCP) server for Roblox reverse engineering, memory scanning, game discovery, and script automation written in pure **C11 & C++20** with native Win32/WinHTTP integration.
+High-performance composite Model Context Protocol (MCP) server for Roblox reverse engineering, memory scanning, game discovery, script automation, and deep bytecode constant unpacking written in pure **C11 & C++20** with native Win32/WinHTTP integration.
 
 Designed to run alongside or on top of `real-mcp.exe` (Real executor MCP runtime) via stdio JSON-RPC 2.0.
 
 ---
 
-## What's New in v1.0.1 (Optimizations & Fixes)
+## What's New in v1.0.5 (Proto-Unpack & Deobfuscation Engine)
 
-- **Worker Thread Reaping**: Proactive cleanup of finished asynchronous tool caller worker threads, eliminating thread accumulation and memory growth during high-frequency requests.
-- **Async Concurrent WinHTTP Fetching**: `web-scripts` now runs ScriptBlox and RScripts search queries concurrently in parallel threads using `std::async`.
-- **Parallel Game Discovery Enriched Metadata**: `rbxgame-search` executes game details, vote counts/ratings, and icon thumbnail requests asynchronously in parallel streams over WinHTTP.
-- **Decompression & Query Preservation**: Added transparent gzip/deflate response decompression support via `WINHTTP_OPTION_DECOMPRESSION` and enhanced URL path extra-info handling.
-- **Multi-threaded Recon**: `recon` runs `scac`, `proxscan`, `econscan`, `uiscan`, and `clicheck` in parallel worker tasks.
+- **`proto-unpack` Tool**: Deep bytecode constant and substitution table unpacker for custom Luau obfuscators and VM loaders.
+  - Automatically parses and extracts indexed Lua constant tables (`tbl[idx]`).
+  - Inlines function wrappers (`local function fn(i) return tbl[i] end` or `fn(i ^ key)`).
+  - Unpacks embedded VM bytecode constant pools (length-prefixed strings, number pools, prototype chunks).
+  - Heuristic auto-recovery of single-byte and multi-byte XOR encryption keys.
+  - Constant folding for built-in operations: `string.reverse`, `string.sub`, `string.char`, `table.concat`, and string concatenation chains (`..`).
+  - Automatic extraction and classification of IOCs (Discord webhooks, remote URLs, Roblox services, and Remotes).
+- **`simpledeobf` v1.0.5 Integration**: Added `proto-unpack` mode and fallback to automatic detection pipeline.
+- **25 Specialized High-Level Tools**: Total tool count upgraded to 25.
 
 ---
 
@@ -22,8 +26,8 @@ Designed to run alongside or on top of `real-mcp.exe` (Real executor MCP runtime
 - **Direct Win32 Pipes**: Low-overhead asynchronous RPC communication with `real-mcp.exe`.
 - **Native WinHTTP**: Fast TLS/HTTPS client for public web APIs without curl or Python overhead.
 - **Embedded Luau Payloads**: 18 optimized byte-level Luau scanners embedded into the binary at compile time.
-- **24 High-Level MCP Tools**:
-  - **Data Model & Deobfuscation**: `simpledeobf`, `dumper`
+- **25 High-Level MCP Tools**:
+  - **Data Model & Deobfuscation**: `proto-unpack`, `simpledeobf`, `dumper`
   - **Game Discovery & Research**: `rbxgame-search`, `web-scripts`
   - **Recon & Anti-Cheat**: `recon`, `scac`, `uiscan`, `httpscan`, `keyscan`, `hookwatch`
   - **Remotes & Networking**: `remmap`, `remtrace`, `remotesim`, `clicheck`, `netcheck`

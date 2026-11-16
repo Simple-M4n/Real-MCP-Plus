@@ -1,16 +1,16 @@
 ---
 name: replus
 description: >-
-  Complete guide for RealMCP+ (real-plus MCP server, 24 high-level tools). Use
+  Complete guide for RealMCP+ (real-plus MCP server, 25 high-level tools). Use
   when scanning/reversing a Roblox game, running scripts, tracing remotes,
   testing animations/physics, searching ScriptBlox/RScripts, searching games
   across categories, auditing client-side anti-cheat, deobfuscating Luau scripts,
-  or dumping data model hierarchies.
+  unpacking bytecode constants/substitution tables, or dumping data model hierarchies.
 ---
 
-# RealMCP+ (`real-plus`)
+# RealMCP+ (`real-plus`) v1.0.5
 
-High-level composite MCP server providing 24 specialized tools for Roblox reverse engineering, memory scanning, world auditing, script automation, deobfuscation, and data model dumping.
+High-level composite MCP server providing 25 specialized tools for Roblox reverse engineering, memory scanning, world auditing, script automation, bytecode unpacking, deobfuscation, and data model dumping.
 
 - **Executable**: `real-mcp-plus.exe --only-plus`
 - **MCP Server Name**: `real-plus`
@@ -18,11 +18,11 @@ High-level composite MCP server providing 24 specialized tools for Roblox revers
 
 ## Routing & Rules
 
-- Always pass `ServerName: "real-plus"` for all 24 tools.
+- Always pass `ServerName: "real-plus"` for all 25 tools.
 - Never write print statements, notifications, or toasts in generated Luau code.
 - Read `<appDataDir>\mcp\real-plus\<tool>.json` if inspecting detailed schemas.
 
-## RealMCP+ Tools Reference (24 Tools)
+## RealMCP+ Tools Reference (25 Tools)
 
 ### Reconnaissance & Anti-Cheat
 - **`recon`** (`depth`, `remember`): One-shot automated game reconnaissance combining game info, remotes, anti-cheat, UI, interactables, and memory persistence.
@@ -50,8 +50,9 @@ High-level composite MCP server providing 24 specialized tools for Roblox revers
 - **`animmake`** (`action`, `animId`, `loop`, `speed`, `keyframes`): Create, play, stop, or export keyframe animations applied directly to Motor6D joints.
 - **`scriptmap`** (`includeNil`, `testDecompile`, `filter`, `maxItems`): Inventory of all LocalScripts and ModuleScripts with decompiler readability check.
 
-### Deobfuscation & Data Model Dumping
-- **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `ironbrew`, `moonsec`, `generic`. Automatically recognizes WeAreDevs (`https://wearedevs.net/obfuscator`), Prometheus V2 (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), IronBrew 2 (IB2 / Luraph legacy), and MoonSec V2/V3 (with automatic XOR key recovery), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, referenced services, and IOCs. Operates fully offline without requiring an active Roblox client.
+### Deobfuscation, Bytecode & Data Model Dumping
+- **`simpledeobf`** (`script`, `mode`, `extractStrings`, `extractUrls`): Deobfuscate and analyze protected Luau scripts. Modes: `auto`, `wearedevs`, `prometheus`, `ironbrew`, `moonsec`, `proto-unpack`, `generic`. Automatically recognizes WeAreDevs (`https://wearedevs.net/obfuscator`), Prometheus V2 (`https://github.com/0x251/Prometheus-DeobfuscatorV2`), IronBrew 2 (IB2 / Luraph legacy), and MoonSec V2/V3 (with automatic XOR key recovery), folded character arrays, hex/byte decoding, and extracts hidden endpoints, webhooks, referenced services, and IOCs. Operates fully offline without requiring an active Roblox client.
+- **`proto-unpack`** (`script`, `inlineConstants`, `decodeBytecode`, `recoverXor`, `foldBuiltins`, `extractUrls`, `extractIOCs`): Deep bytecode constants and substitution table unpacker. Automatically parses Lua constant tables, inlines table-wrapper functions (`fn(idx)` / `tbl[idx]`), unpacks VM constant pools, auto-recovers single-byte and multi-byte XOR encryption keys, folds builtin operations (`string.reverse`, `string.sub`, `string.char`, `table.concat`), and extracts network IOCs, Roblox services, and Remotes. Operates fully offline.
 - **`dumper`** (`target`, `maxDepth`, `saveToFile`): Recursively dump Roblox DataModel hierarchies (ReplicatedStorage, StarterGui, StarterPlayer, Workspace) with attributes, Remote identifiers, and ValueBases into structured JSON for offline analysis or direct disk export.
 
 ### Web Search & Game Discovery

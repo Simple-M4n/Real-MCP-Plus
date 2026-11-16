@@ -114,12 +114,24 @@ Json list_plus_tools() {
         })));
 
     a.push_back(make_tool("simpledeobf",
-        "Deobfuscate and analyze protected Lua/Luau scripts with automatic detection (WeAreDevs, Prometheus V2, IronBrew 2, MoonSec V2/V3, string encryption, and character array folding).",
+        "Deobfuscate and analyze protected Lua/Luau scripts with automatic detection (WeAreDevs, Prometheus V2, IronBrew 2, MoonSec V2/V3, proto-unpack, string encryption, and character array folding).",
         Json::object({
             {"script", prop_str("Obfuscated Luau script code or payload")},
-            {"mode", prop_str("Deobfuscation mode: auto, wearedevs, prometheus, ironbrew, moonsec, generic", "auto")},
+            {"mode", prop_str("Deobfuscation mode: auto, wearedevs, prometheus, ironbrew, moonsec, proto-unpack, generic", "auto")},
             {"extractStrings", prop_bool("Extract decrypted strings and literals", true)},
             {"extractUrls", prop_bool("Extract hidden URLs, webhooks, and endpoints", true)}
+        }), {"script"}));
+
+    a.push_back(make_tool("proto-unpack",
+        "Unpack bytecode constant pools, inline wrapper functions, resolve substitution table lookups, and decrypt bit32 XOR arrays in custom obfuscators and VM loaders.",
+        Json::object({
+            {"script", prop_str("Obfuscated Luau script code or payload")},
+            {"inlineConstants", prop_bool("Inline table lookups and function wrappers directly into code", true)},
+            {"decodeBytecode", prop_bool("Extract string and number constant pools from embedded bytecode chunks", true)},
+            {"recoverXor", prop_bool("Auto-recover single-byte and multi-byte XOR encryption keys", true)},
+            {"foldBuiltins", prop_bool("Fold string.reverse, string.sub, string.char, and table.concat into literals", true)},
+            {"extractUrls", prop_bool("Extract network URLs and Discord webhooks", true)},
+            {"extractIOCs", prop_bool("Extract referenced Roblox services, globals, and remotes", true)}
         }), {"script"}));
 
     a.push_back(make_tool("dumper",
@@ -263,6 +275,7 @@ Json dispatch_plus_tool(RealBridge& real, const std::string& name, const Json& a
         {"web-scripts", run_web_scripts},
         {"rbxgame-search", run_rbxgame_search},
         {"simpledeobf", run_simpledeobf},
+        {"proto-unpack", run_proto_unpack},
         {"dumper", run_dumper},
         {"clicheck", run_clicheck},
         {"modscan", run_modscan},
